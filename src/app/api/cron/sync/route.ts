@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server';
 import { authorizeCron } from '@/lib/http/api';
 import { runFullSync } from '@/lib/sync/run';
 import { purgeExpiredSessions } from '@/lib/auth/session';
+import { purgeOldLoginAttempts } from '@/lib/auth/throttle';
 import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,7 @@ async function handle(request: Request): Promise<NextResponse> {
   try {
     const result = await runFullSync('cron');
     await purgeExpiredSessions();
+    await purgeOldLoginAttempts();
 
     return NextResponse.json({
       ok: result.ok,

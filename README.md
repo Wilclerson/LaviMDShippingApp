@@ -170,6 +170,11 @@ not the security boundary.
   server-side revocation, and invalidation of every session on a password change.
 - Passwords are scrypt-hashed with a per-user salt. Login timing does not reveal
   whether an account exists.
+- Failed sign-ins are throttled on a rolling 15-minute window, counted per email
+  *and* per client IP — the first stops password guessing against one account,
+  the second stops one password being sprayed across many. A successful sign-in
+  clears the account's lockout, so nobody needs an administrator to let them
+  back in.
 - All SQL is parameterised. Route input is validated with zod. UUID path
   parameters are checked before reaching the database.
 - Cron routes require `CRON_SECRET`, compared in constant time.

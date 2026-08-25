@@ -453,15 +453,45 @@ export async function fetchQuantumViewShipments(
     }
   }
 
-  const shipments = parseQuantumViewFiles(files);
+  const parsed = parseQuantumViewFiles(files);
+  const shipments = filterToOwnAccount(parsed);
+
   log.info('Quantum View poll complete', {
     pages,
     files: files.length,
     shipments: shipments.length,
+    discardedForeign: parsed.length - shipments.length,
     truncated,
   });
 
   return { shipments, pages, truncated };
+}
+
+/**
+ * Keep only shipments billed to our own UPS account.
+ *
+ * A Quantum View subscription can be configured for inbound shipments or for
+ * third-party billing. Those events describe packages other people sent, and
+ * ingesting them would invent "Wholesale / Danielle" records for shipments that
+ * never came out of our facility.
+ *
+ * The filter applies only when UPS_ACCOUNT_NUMBER is configured; without it we
+ * cannot tell the difference and keep everything, which is the previous
+ * behaviour. Shipments whose shipper number UPS did not report are kept too —
+ * dropping a real outbound label is worse than keeping an extra one, and an
+ * Origin event does not always carry the shipper number.
+ */
+export function filterToOwnAccount(
+  shipments: QuantumViewShipment[],
+  accountNumber: string | null = env.ups.accountNumber,
+): QuantumViewShipment[] {
+  if (!accountNumber) return shipments;
+  const own = accountNumber.trim().toUpperCase();
+
+  return shipments.filter((shipment) => {
+    if (!shipment.shipperNumber) return true;
+    return shipment.shipperNumber.trim().toUpperCase() === own;
+  });
 }
 
 /** Health probe: can we reach Quantum View at all? */

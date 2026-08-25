@@ -6,7 +6,7 @@
  */
 
 import { query, queryOne } from './pool';
-import type { NormalizedStatus, ShipmentRow } from '../types';
+import type { ShipmentRow } from '../types';
 
 /** The filter chips exposed in the UI and accepted by the API. */
 export const SHIPMENT_FILTERS = [

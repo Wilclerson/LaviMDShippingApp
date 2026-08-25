@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getCurrentUser, createSession, setSessionCookie } from '@/lib/auth/session';
 import { authenticate } from '@/lib/auth/users';
+import { checkLoginAllowed, recordLoginAttempt } from '@/lib/auth/throttle';
 import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
@@ -36,17 +37,29 @@ export default async function LoginPage({
       redirect(`/login?error=missing&next=${encodeURIComponent(target)}`);
     }
 
+    const headerList = await headers();
+    const ipAddress = headerList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
+
+    // Refuse before touching the password hash, so a throttled attacker cannot
+    // even use the endpoint as a CPU sink.
+    const throttle = await checkLoginAllowed(email, ipAddress);
+    if (!throttle.allowed) {
+      redirect(`/login?error=throttled&next=${encodeURIComponent(target)}`);
+    }
+
     const user = await authenticate(email, password);
     if (!user) {
+      await recordLoginAttempt(email, ipAddress, false);
       // Deliberately vague: never reveal whether the account exists.
       logger.warn('failed login attempt', { emailDomain: email.split('@')[1] ?? 'unknown' });
       redirect(`/login?error=invalid&next=${encodeURIComponent(target)}`);
     }
 
-    const headerList = await headers();
+    await recordLoginAttempt(email, ipAddress, true);
+
     const { token, expiresAt } = await createSession(user.id, {
       userAgent: headerList.get('user-agent'),
-      ipAddress: headerList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+      ipAddress,
     });
     await setSessionCookie(token, expiresAt);
     logger.info('user signed in', { userId: user.id, role: user.role });
@@ -61,7 +74,9 @@ export default async function LoginPage({
         ? 'Enter both an email address and a password.'
         : errorCode === 'forbidden'
           ? 'Your account does not have access to that page.'
-          : null;
+          : errorCode === 'throttled'
+            ? 'Too many failed sign-in attempts. Please wait 15 minutes and try again.'
+            : null;
 
   return (
     <main className="login-wrap">

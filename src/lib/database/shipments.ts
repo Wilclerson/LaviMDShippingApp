@@ -11,6 +11,7 @@
 
 import { query, queryOne, transaction } from './pool';
 import { logger } from '../logger';
+import { env } from '../env';
 import type { MergedShipment } from '../shipment-normalizer/merge';
 import type { CarrierEvent, NormalizedStatus, ShipmentRow, ShipmentSource } from '../types';
 
@@ -272,7 +273,10 @@ export async function loadKnownStates(
  * label-only shipments are the ones the business needs an answer about, so
  * they are polled before packages already confirmed in transit.
  */
-export async function selectTrackingRefreshCandidates(limit: number): Promise<string[]> {
+export async function selectTrackingRefreshCandidates(
+  limit: number,
+  refreshDeliveredDays: number = env.tuning.trackingRefreshDeliveredDays,
+): Promise<string[]> {
   const rows = await query<{ tracking_number: string }>(
     `SELECT tracking_number
        FROM shipments
@@ -291,7 +295,7 @@ export async function selectTrackingRefreshCandidates(limit: number): Promise<st
         -- 3. staleness
         last_tracking_check_at ASC NULLS FIRST
       LIMIT $1`,
-    [limit, String(7)],
+    [limit, String(refreshDeliveredDays)],
   );
   return rows.map((r) => r.tracking_number);
 }

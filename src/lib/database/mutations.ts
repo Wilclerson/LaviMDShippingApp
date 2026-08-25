@@ -5,7 +5,7 @@
  * so the original evidence stays intact and the decision is attributable.
  */
 
-import { query, queryOne, transaction } from './pool';
+import { query, transaction } from './pool';
 import { logger } from '../logger';
 import { RESOLUTION_REASONS, type ResolutionReason } from '../types';
 

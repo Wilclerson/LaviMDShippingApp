@@ -27,7 +27,7 @@ import {
   refreshAgingLabels,
   findExistingTrackingNumbers,
 } from '../database/shipments';
-import { mergeShipment, mergeUpsFacts, quantumViewToUpsFacts } from '../shipment-normalizer/merge';
+import { mergeShipment, quantumViewToUpsFacts } from '../shipment-normalizer/merge';
 import * as shipstation from '../shipstation/client';
 import { toShipStationFacts, buildStoreResolver, isStoreInScope, isUpsCarrier } from '../shipstation/normalize';
 import { fetchQuantumViewShipments } from '../ups/quantum-view';

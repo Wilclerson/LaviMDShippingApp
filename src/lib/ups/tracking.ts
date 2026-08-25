@@ -27,7 +27,7 @@ import { env } from '../env';
 import { logger } from '../logger';
 import { request, HttpError } from '../http/fetch';
 import { upsAuthHeaders, getAccessToken } from './oauth';
-import { parseUpsDateTime, parseUpsDateOnly } from '../time';
+import { parseUpsDateTime } from '../time';
 import {
   isPhysicalPossessionScan,
   isDeliveryActivity,

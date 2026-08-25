@@ -322,3 +322,69 @@ describe('Quantum View parsing — Danielle wholesale discovery', () => {
     assert.equal(shipment?.trackingNumber, '1ZABC0000000001');
   });
 });
+
+describe('Quantum View account scoping', () => {
+  test('shipments from another shipper number are discarded', async () => {
+    const { filterToOwnAccount } = await import('../src/lib/ups/quantum-view');
+    const shipments = parseQuantumViewFiles([
+      {
+        Manifest: {
+          Shipper: { ShipperNumber: 'A1B2C3' },
+          PickupDate: '20260825',
+          Package: { TrackingNumber: '1ZOURS000000000001', Activity: [{ Date: '20260825', Time: '100000' }] },
+        },
+      },
+      {
+        Manifest: {
+          Shipper: { ShipperNumber: 'ZZZZZZ' },
+          PickupDate: '20260825',
+          Package: { TrackingNumber: '1ZTHEIRS00000000001', Activity: [{ Date: '20260825', Time: '100000' }] },
+        },
+      },
+    ]);
+    assert.equal(shipments.length, 2, 'the parser keeps both');
+
+    const ours = filterToOwnAccount(shipments, 'A1B2C3');
+    assert.equal(ours.length, 1);
+    assert.equal(ours[0]!.trackingNumber, '1ZOURS000000000001');
+  });
+
+  test('shipper number matching ignores case and surrounding whitespace', async () => {
+    const { filterToOwnAccount } = await import('../src/lib/ups/quantum-view');
+    const shipments = parseQuantumViewFiles([
+      {
+        Manifest: {
+          Shipper: { ShipperNumber: ' a1b2c3 ' },
+          PickupDate: '20260825',
+          Package: { TrackingNumber: '1ZOURS000000000002', Activity: [{ Date: '20260825', Time: '100000' }] },
+        },
+      },
+    ]);
+    assert.equal(filterToOwnAccount(shipments, 'A1B2C3').length, 1);
+  });
+
+  test('with no account number configured nothing is filtered out', async () => {
+    const { filterToOwnAccount } = await import('../src/lib/ups/quantum-view');
+    const shipments = parseQuantumViewFiles([
+      {
+        Manifest: {
+          Shipper: { ShipperNumber: 'ZZZZZZ' },
+          PickupDate: '20260825',
+          Package: { TrackingNumber: '1ZANY0000000000001', Activity: [{ Date: '20260825', Time: '100000' }] },
+        },
+      },
+    ]);
+    assert.equal(filterToOwnAccount(shipments, null).length, 1);
+  });
+
+  test('a shipment with no reported shipper number is kept', async () => {
+    const { filterToOwnAccount } = await import('../src/lib/ups/quantum-view');
+    // An Origin event alone often carries no shipper number. Dropping a real
+    // outbound label would be worse than keeping an extra one.
+    const shipments = parseQuantumViewFiles([
+      { Origin: { TrackingNumber: '1ZNOSHIPPER00000001', Date: '20260825', Time: '120000' } },
+    ]);
+    assert.equal(shipments[0]!.shipperNumber, null);
+    assert.equal(filterToOwnAccount(shipments, 'A1B2C3').length, 1);
+  });
+});
