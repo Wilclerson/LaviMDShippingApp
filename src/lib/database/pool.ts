@@ -1,6 +1,19 @@
-import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { Pool, types as pgTypes, type PoolClient, type QueryResultRow } from 'pg';
 import { env } from '../env';
 import { logger } from '../logger';
+
+/**
+ * PostgreSQL DATE (OID 1082) is a calendar date with no time and no timezone.
+ * node-postgres would otherwise parse it into a JS Date at local midnight,
+ * which both misrepresents the value (a ship date is not an instant) and
+ * shifts it by a day for anyone west of UTC. Keep it as the plain "YYYY-MM-DD"
+ * string the column actually holds.
+ *
+ * TIMESTAMPTZ (OID 1184) keeps its default Date parsing — those really are
+ * instants, and everything in this schema stores them in UTC.
+ */
+const PG_DATE_OID = 1082;
+pgTypes.setTypeParser(PG_DATE_OID, (value: string) => value);
 
 /**
  * A single pooled connection per process. Next.js dev mode re-evaluates modules

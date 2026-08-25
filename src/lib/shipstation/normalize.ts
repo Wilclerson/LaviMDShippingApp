@@ -67,6 +67,26 @@ export function carrierDisplayName(code: string | null): string | null {
   return code.toUpperCase();
 }
 
+/**
+ * ShipStation returns machine service codes ("ups_ground",
+ * "ups_2nd_day_air"). Warehouse staff read the human name, so render that and
+ * fall back to the raw code for anything unrecognised.
+ */
+export function serviceDisplayName(code: string | null): string | null {
+  if (!code) return null;
+  const trimmed = code.trim();
+  // Already human-readable (UPS Tracking and Quantum View return descriptions).
+  if (/\s/.test(trimmed)) return trimmed;
+  return trimmed
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bUps\b/g, 'UPS')
+    .replace(/\bUsps\b/g, 'USPS')
+    .replace(/\bFedex\b/g, 'FedEx')
+    .replace(/\bDhl\b/g, 'DHL')
+    .replace(/\b(\d)(St|Nd|Rd|Th)\b/g, (_m, d, suffix) => `${d}${suffix.toLowerCase()}`);
+}
+
 export function isUpsCarrier(carrier: string | null): boolean {
   return (carrier ?? '').toUpperCase().includes('UPS');
 }
@@ -170,7 +190,9 @@ export function toShipStationFacts(
     shipstationStatus:
       pickString(shipmentRecord, ['shipment_status']) ?? pickString(labelRecord, ['status']),
     carrier: carrierDisplayName(carrierCode),
-    service: pickString(labelRecord, ['service_code']) ?? pickString(shipmentRecord, ['service_code']),
+    service: serviceDisplayName(
+      pickString(labelRecord, ['service_code']) ?? pickString(shipmentRecord, ['service_code']),
+    ),
     labelCreatedAt: pickDate(labelRecord, ['created_at', 'create_date']),
     shipDate: toDateOnly(pickString(labelRecord, ['ship_date']) ?? pickString(shipmentRecord, ['ship_date'])),
     destinationCity: address.city,
