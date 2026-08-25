@@ -52,16 +52,35 @@ function list(name: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Every value is a getter, so the environment is read at the point of use
+ * rather than frozen at import time. Module import order then cannot change
+ * what the app sees, and tests can set a variable before exercising a code
+ * path. Credentials stay behind explicit functions so that reading one is
+ * always a deliberate act.
+ */
 export const env = {
-  appUrl: str('APP_URL', 'https://shipping.lavimd.store').replace(/\/+$/, ''),
-  nodeEnv: str('NODE_ENV', 'development'),
-  isProduction: str('NODE_ENV', 'development') === 'production',
-  logLevel: str('LOG_LEVEL', 'info'),
-  displayTimeZone: str('DISPLAY_TIMEZONE', 'America/New_York'),
+  get appUrl() {
+    return str('APP_URL', 'https://shipping.lavimd.store').replace(/\/+$/, '');
+  },
+  get nodeEnv() {
+    return str('NODE_ENV', 'development');
+  },
+  get isProduction() {
+    return str('NODE_ENV', 'development') === 'production';
+  },
+  get logLevel() {
+    return str('LOG_LEVEL', 'info');
+  },
+  get displayTimeZone() {
+    return str('DISPLAY_TIMEZONE', 'America/New_York');
+  },
 
   database: {
     url: () => required('DATABASE_URL'),
-    sslNoVerify: bool('DATABASE_SSL_NO_VERIFY', false),
+    get sslNoVerify() {
+      return bool('DATABASE_SSL_NO_VERIFY', false);
+    },
   },
 
   session: {
@@ -75,41 +94,83 @@ export const env = {
   shipstation: {
     apiKey: () => required('SHIPSTATION_API_KEY'),
     configured: () => Boolean(raw('SHIPSTATION_API_KEY')),
-    baseUrl: str('SHIPSTATION_API_BASE_URL', 'https://api.shipstation.com').replace(/\/+$/, ''),
-    storeIds: list('SHIPSTATION_STORE_IDS'),
-    storeNames: list('SHIPSTATION_STORE_NAMES'),
+    get baseUrl() {
+      return str('SHIPSTATION_API_BASE_URL', 'https://api.shipstation.com').replace(/\/+$/, '');
+    },
+    get storeIds() {
+      return list('SHIPSTATION_STORE_IDS');
+    },
+    get storeNames() {
+      return list('SHIPSTATION_STORE_NAMES');
+    },
   },
 
   ups: {
     clientId: () => required('UPS_CLIENT_ID'),
     clientSecret: () => required('UPS_CLIENT_SECRET'),
     configured: () => Boolean(raw('UPS_CLIENT_ID') && raw('UPS_CLIENT_SECRET')),
-    accountNumber: raw('UPS_ACCOUNT_NUMBER') ?? null,
-    baseUrl: str('UPS_API_BASE_URL', 'https://onlinetools.ups.com').replace(/\/+$/, ''),
-    transactionSrc: str('UPS_TRANSACTION_SRC', 'lavimd-shipping-audit'),
-    quantumViewEnabled: bool('UPS_QUANTUM_VIEW_ENABLED', true),
-    quantumViewSubscriptions: list('UPS_QUANTUM_VIEW_SUBSCRIPTIONS'),
+    get accountNumber() {
+      return raw('UPS_ACCOUNT_NUMBER') ?? null;
+    },
+    get baseUrl() {
+      return str('UPS_API_BASE_URL', 'https://onlinetools.ups.com').replace(/\/+$/, '');
+    },
+    get transactionSrc() {
+      return str('UPS_TRANSACTION_SRC', 'lavimd-shipping-audit');
+    },
+    get quantumViewEnabled() {
+      return bool('UPS_QUANTUM_VIEW_ENABLED', true);
+    },
+    get quantumViewSubscriptions() {
+      return list('UPS_QUANTUM_VIEW_SUBSCRIPTIONS');
+    },
   },
 
   email: {
-    provider: str('EMAIL_PROVIDER', 'console').toLowerCase(),
-    apiKey: raw('EMAIL_PROVIDER_API_KEY') ?? null,
-    from: str('EMAIL_FROM', 'shipping-audit@lavimd.store'),
-    fromName: str('EMAIL_FROM_NAME', 'Lavi MD Shipping Audit'),
-    recipients: list('EMAIL_RECIPIENTS'),
+    get provider() {
+      return str('EMAIL_PROVIDER', 'console').toLowerCase();
+    },
+    get apiKey() {
+      return raw('EMAIL_PROVIDER_API_KEY') ?? null;
+    },
+    get from() {
+      return str('EMAIL_FROM', 'shipping-audit@lavimd.store');
+    },
+    get fromName() {
+      return str('EMAIL_FROM_NAME', 'Lavi MD Shipping Audit');
+    },
+    get recipients() {
+      return list('EMAIL_RECIPIENTS');
+    },
     smtp: {
-      host: raw('SMTP_HOST') ?? null,
-      port: int('SMTP_PORT', 587),
-      user: raw('SMTP_USER') ?? null,
-      password: raw('SMTP_PASSWORD') ?? null,
+      get host() {
+        return raw('SMTP_HOST') ?? null;
+      },
+      get port() {
+        return int('SMTP_PORT', 587);
+      },
+      get user() {
+        return raw('SMTP_USER') ?? null;
+      },
+      get password() {
+        return raw('SMTP_PASSWORD') ?? null;
+      },
     },
   },
 
   tuning: {
-    agingLabelHours: int('AGING_LABEL_HOURS', 24),
-    syncLookbackHours: int('SYNC_LOOKBACK_HOURS', 72),
-    trackingRefreshDeliveredDays: int('TRACKING_REFRESH_DELIVERED_DAYS', 7),
-    trackingMaxLookupsPerRun: int('TRACKING_MAX_LOOKUPS_PER_RUN', 250),
+    get agingLabelHours() {
+      return int('AGING_LABEL_HOURS', 24);
+    },
+    get syncLookbackHours() {
+      return int('SYNC_LOOKBACK_HOURS', 72);
+    },
+    get trackingRefreshDeliveredDays() {
+      return int('TRACKING_REFRESH_DELIVERED_DAYS', 7);
+    },
+    get trackingMaxLookupsPerRun() {
+      return int('TRACKING_MAX_LOOKUPS_PER_RUN', 250);
+    },
   },
 } as const;
 

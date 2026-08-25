@@ -142,15 +142,15 @@ export default async function DashboardPage({
           />
           <StatCard
             label="Label Created"
-            value={stats.labelCreated + stats.agingLabels}
-            tone={stats.labelCreated + stats.agingLabels > 0 ? 'warning' : 'success'}
+            value={stats.labelCreatedTotal}
+            tone={stats.labelCreatedTotal > 0 ? 'warning' : 'success'}
             filter="label_created"
             active={filter === 'label_created'}
             sub="No UPS possession scan"
           />
           <StatCard
             label="In Transit"
-            value={stats.inTransit + stats.confirmedShipped}
+            value={stats.inTransitTotal}
             tone="success"
             filter="in_transit"
             active={filter === 'in_transit'}

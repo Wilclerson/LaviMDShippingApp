@@ -92,7 +92,11 @@ function buildWhere(options: ShipmentQueryOptions): WhereClause {
       conditions.push(`normalized_status = 'SHIPPED'`);
       break;
     case 'in_transit':
-      conditions.push(`normalized_status = 'IN_TRANSIT'`);
+      // "In Transit" means everything UPS physically holds and has not yet
+      // delivered. SHIPPED is the first scan of that same journey, so it
+      // belongs here too; `confirmed_shipped` is the narrower chip for it.
+      // This mirrors how `label_created` covers LABEL_CREATED + AGING_LABEL.
+      conditions.push(`normalized_status IN ('SHIPPED','IN_TRANSIT')`);
       break;
     case 'delivered':
       conditions.push(`normalized_status = 'DELIVERED'`);
@@ -209,9 +213,15 @@ export async function listShipments(
 
 export interface DashboardStats {
   needsAttention: number;
+  /** LABEL_CREATED only (not yet past the aging threshold). */
   labelCreated: number;
+  /** LABEL_CREATED + AGING_LABEL — matches the `label_created` filter. */
+  labelCreatedTotal: number;
   agingLabels: number;
+  /** IN_TRANSIT only. */
   inTransit: number;
+  /** SHIPPED + IN_TRANSIT — matches the `in_transit` filter. */
+  inTransitTotal: number;
   confirmedShipped: number;
   delivered: number;
   exceptions: number;
@@ -220,19 +230,34 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
+  // Every count except `total` excludes manually-resolved shipments, because
+  // each card links to a filtered list that excludes them too. A card showing a
+  // bigger number than the table it opens is a bug report waiting to happen.
+  // `total` is the exception: it links to the "All Shipments" view, which
+  // deliberately shows everything, resolved included.
   const row = await queryOne<Record<string, string>>(
     `SELECT
        COUNT(*) FILTER (WHERE normalized_status IN ('LABEL_CREATED','AGING_LABEL','EXCEPTION')
                           AND manually_resolved = FALSE)::text AS needs_attention,
-       COUNT(*) FILTER (WHERE normalized_status = 'LABEL_CREATED')::text  AS label_created,
-       COUNT(*) FILTER (WHERE normalized_status = 'AGING_LABEL')::text    AS aging_labels,
-       COUNT(*) FILTER (WHERE normalized_status = 'IN_TRANSIT')::text     AS in_transit,
-       COUNT(*) FILTER (WHERE normalized_status = 'SHIPPED')::text        AS confirmed_shipped,
-       COUNT(*) FILTER (WHERE normalized_status = 'DELIVERED')::text      AS delivered,
+       COUNT(*) FILTER (WHERE normalized_status = 'LABEL_CREATED'
+                          AND manually_resolved = FALSE)::text  AS label_created,
+       COUNT(*) FILTER (WHERE normalized_status = 'AGING_LABEL'
+                          AND manually_resolved = FALSE)::text  AS aging_labels,
+       COUNT(*) FILTER (WHERE normalized_status = 'IN_TRANSIT'
+                          AND manually_resolved = FALSE)::text  AS in_transit,
+       COUNT(*) FILTER (WHERE normalized_status = 'SHIPPED'
+                          AND manually_resolved = FALSE)::text  AS confirmed_shipped,
+       COUNT(*) FILTER (WHERE normalized_status = 'DELIVERED'
+                          AND manually_resolved = FALSE)::text  AS delivered,
        COUNT(*) FILTER (WHERE normalized_status = 'EXCEPTION'
-                          AND manually_resolved = FALSE)::text            AS exceptions,
-       COUNT(*) FILTER (WHERE source = 'wholesale_danielle')::text        AS wholesale,
-       COUNT(*)::text                                                     AS total
+                          AND manually_resolved = FALSE)::text  AS exceptions,
+       COUNT(*) FILTER (WHERE normalized_status IN ('LABEL_CREATED','AGING_LABEL')
+                          AND manually_resolved = FALSE)::text  AS label_created_total,
+       COUNT(*) FILTER (WHERE normalized_status IN ('SHIPPED','IN_TRANSIT')
+                          AND manually_resolved = FALSE)::text  AS in_transit_total,
+       COUNT(*) FILTER (WHERE source = 'wholesale_danielle'
+                          AND manually_resolved = FALSE)::text  AS wholesale,
+       COUNT(*)::text                                           AS total
      FROM shipments`,
   );
 
@@ -240,8 +265,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return {
     needsAttention: n('needs_attention'),
     labelCreated: n('label_created'),
+    labelCreatedTotal: n('label_created_total'),
     agingLabels: n('aging_labels'),
     inTransit: n('in_transit'),
+    inTransitTotal: n('in_transit_total'),
     confirmedShipped: n('confirmed_shipped'),
     delivered: n('delivered'),
     exceptions: n('exceptions'),
