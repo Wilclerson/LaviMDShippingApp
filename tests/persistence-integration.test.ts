@@ -37,12 +37,29 @@ describeDb('persistent exceptions and report data', () => {
     userId = rows[0]?.id ?? '';
   });
 
-  beforeEach(async () => {
+  /**
+   * Resolving a shipment writes an audit_log row, and audit_log deliberately has
+   * no FK to shipments — the trail has to outlive the record it describes. So
+   * deleting the shipment alone leaves an orphaned audit row behind. Clear the
+   * audit rows first, matched to this suite's own shipments, then the shipments.
+   *
+   * The second predicate catches rows whose shipment a previous run already
+   * removed; both are scoped to the 1ZPERSIST prefix, so nothing else is touched.
+   */
+  async function cleanup() {
+    await pool.query(
+      `DELETE FROM audit_log
+        WHERE entity_type = 'shipment'
+          AND (entity_id IN (SELECT id::text FROM shipments WHERE tracking_number LIKE '1ZPERSIST%')
+               OR detail->>'trackingNumber' LIKE '1ZPERSIST%')`,
+    );
     await pool.query(`DELETE FROM shipments WHERE tracking_number LIKE '1ZPERSIST%'`);
-  });
+  }
+
+  beforeEach(cleanup);
 
   after(async () => {
-    await pool.query(`DELETE FROM shipments WHERE tracking_number LIKE '1ZPERSIST%'`);
+    await cleanup();
     await pool.closePool();
   });
 
