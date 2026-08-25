@@ -81,6 +81,20 @@ export interface MergeOptions {
   knownLabelCreatedAt?: Date | null;
   /** Physical scans already stored, so SHIPPED vs IN_TRANSIT stays correct. */
   knownPhysicalScanCount?: number;
+
+  /**
+   * Terminal facts already recorded for this shipment.
+   *
+   * Each sync pass only holds part of the picture: the ShipStation pass knows
+   * nothing about delivery, and the Quantum View pass may not see a void that
+   * ShipStation reported. Without these, a pass would compute a status from its
+   * own narrow view and downgrade a DELIVERED shipment back to IN_TRANSIT on
+   * the next run. Delivery, exceptions and voids are therefore carried into
+   * every merge so any pass derives the same, complete status.
+   */
+  knownDeliveredAt?: Date | null;
+  knownExceptionType?: string | null;
+  knownVoided?: boolean;
 }
 
 /** Prefer the first non-null value. */
@@ -164,7 +178,9 @@ export function mergeShipment(
 
   const firstCarrierScanAt = earliest(options.knownFirstCarrierScanAt, ups?.firstCarrierScanAt);
 
-  const deliveredAt = latest(ups?.deliveredAt);
+  // Delivery is terminal: once observed it is never forgotten, even by a pass
+  // that cannot see it.
+  const deliveredAt = latest(options.knownDeliveredAt, ups?.deliveredAt);
 
   // --- carrier status: UPS wins --------------------------------------------
   const events = mergeEvents(ups?.events ?? []);
@@ -174,10 +190,15 @@ export function mergeShipment(
   );
 
   const voided =
+    options.knownVoided === true ||
     shipstation?.voided === true ||
     (ups?.exceptionType ?? '').toLowerCase().includes('void');
 
-  const hasException = Boolean(ups?.exceptionType) && !voided;
+  // An exception stays raised until UPS supersedes it with delivery, or an
+  // administrator resolves the shipment. A pass that simply cannot see the
+  // exception must not silently clear it.
+  const exceptionType = coalesce(ups?.exceptionType, options.knownExceptionType);
+  const hasException = Boolean(exceptionType) && !voided;
 
   const baseStatus = deriveStatus(
     {
@@ -231,7 +252,7 @@ export function mergeShipment(
 
     latestTrackingEvent: coalesce(ups?.latestEvent, latestEvent?.description),
     latestTrackingEventAt: latest(ups?.latestEventAt, latestEvent?.occurredAt),
-    exceptionType: voided ? 'Label voided' : (ups?.exceptionType ?? null),
+    exceptionType: voided ? 'Label voided' : exceptionType,
     hasPhysicalScan: firstCarrierScanAt !== null,
 
     events,

@@ -205,6 +205,9 @@ export async function syncShipStation(triggeredBy: string): Promise<PassResult> 
           knownLabelCreatedAt: known?.labelCreatedAt ?? null,
           knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
           knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+          knownDeliveredAt: known?.deliveredAt ?? null,
+          knownExceptionType: known?.exceptionType ?? null,
+          knownVoided: known?.voided ?? false,
         });
         const upserted = await upsertShipment(merged);
         if (upserted.created) result.created += 1;
@@ -288,6 +291,9 @@ export async function syncQuantumView(triggeredBy: string): Promise<PassResult> 
           knownLabelCreatedAt: known?.labelCreatedAt ?? null,
           knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
           knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+          knownDeliveredAt: known?.deliveredAt ?? null,
+          knownExceptionType: known?.exceptionType ?? null,
+          knownVoided: known?.voided ?? false,
         });
 
         const upserted = await upsertShipment(merged);
@@ -370,6 +376,9 @@ export async function syncUpsTracking(
           knownLabelCreatedAt: known?.labelCreatedAt ?? null,
           knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
           knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+          knownDeliveredAt: known?.deliveredAt ?? null,
+          knownExceptionType: known?.exceptionType ?? null,
+          knownVoided: known?.voided ?? false,
         });
 
         const upserted = await upsertShipment(merged);

@@ -323,3 +323,46 @@ describe('quantumViewToUpsFacts', () => {
     assert.equal(merged.hasPhysicalScan, false);
   });
 });
+
+describe('terminal facts carried between sync passes', () => {
+  test('a pass with no UPS data keeps a previously recorded delivery', () => {
+    const merged = mergeShipment(ssFacts(), null, {
+      ...OPTS,
+      knownDeliveredAt: new Date('2026-08-25T15:00:00Z'),
+      knownFirstCarrierScanAt: new Date('2026-08-24T18:00:00Z'),
+    });
+    assert.equal(merged.normalizedStatus, 'DELIVERED');
+    assert.equal(merged.deliveredAt?.toISOString(), '2026-08-25T15:00:00.000Z');
+  });
+
+  test('a pass that cannot see an exception does not clear it', () => {
+    const merged = mergeShipment(ssFacts(), null, {
+      ...OPTS,
+      knownExceptionType: 'Address correction required',
+      knownFirstCarrierScanAt: new Date('2026-08-24T18:00:00Z'),
+    });
+    assert.equal(merged.normalizedStatus, 'EXCEPTION');
+    assert.equal(merged.exceptionType, 'Address correction required');
+  });
+
+  test('a UPS pass keeps a void that only ShipStation reported', () => {
+    const merged = mergeShipment(null, upsFacts(), { ...OPTS, knownVoided: true });
+    assert.equal(merged.normalizedStatus, 'VOIDED');
+  });
+
+  test('fresh UPS data still overrides a stale known exception', () => {
+    const merged = mergeShipment(
+      null,
+      upsFacts({ deliveredAt: new Date('2026-08-26T10:00:00Z') }),
+      { ...OPTS, knownExceptionType: 'Delivery attempt failed' },
+    );
+    assert.equal(merged.normalizedStatus, 'DELIVERED');
+  });
+
+  test('without the known-state options nothing changes for a first sighting', () => {
+    const merged = mergeShipment(ssFacts(), upsFacts(), OPTS);
+    assert.equal(merged.normalizedStatus, 'SHIPPED');
+    assert.equal(merged.deliveredAt, null);
+    assert.equal(merged.exceptionType, null);
+  });
+});

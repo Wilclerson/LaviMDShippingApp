@@ -244,3 +244,205 @@ describeDb('persistent exceptions and report data', () => {
     assert.equal(stats.inTransitTotal, stats.inTransit + stats.confirmedShipped);
   });
 });
+
+describeDb('a later sync pass never downgrades a terminal status', () => {
+  let mod: typeof import('../src/lib/database/shipments');
+  let merge: typeof import('../src/lib/shipment-normalizer/merge');
+  let pool: typeof import('../src/lib/database/pool');
+
+  const HOUR = 3_600_000;
+  const ago = (h: number) => new Date(Date.now() - h * HOUR);
+
+  before(async () => {
+    mod = await import('../src/lib/database/shipments');
+    merge = await import('../src/lib/shipment-normalizer/merge');
+    pool = await import('../src/lib/database/pool');
+  });
+
+  beforeEach(async () => {
+    await pool.query(`DELETE FROM shipments WHERE tracking_number LIKE '1ZDOWNGRADE%'`);
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM shipments WHERE tracking_number LIKE '1ZDOWNGRADE%'`);
+    await pool.closePool();
+  });
+
+  function shipStationFacts(tracking: string, overrides: Record<string, unknown> = {}) {
+    return {
+      trackingNumber: tracking,
+      customerName: 'Downgrade Probe',
+      companyName: null,
+      orderNumber: 'LM-DOWNGRADE',
+      shipstationOrderId: null,
+      shipstationShipmentId: null,
+      shipstationLabelId: null,
+      shipstationStoreId: '55001',
+      sourceStore: 'Lavi MD Retail Website',
+      shipstationStatus: 'shipped',
+      carrier: 'UPS',
+      service: 'UPS Ground',
+      labelCreatedAt: ago(100),
+      shipDate: null,
+      destinationCity: 'Tampa',
+      destinationState: 'FL',
+      destinationPostalCode: null,
+      destinationCountry: 'US',
+      voided: false,
+      raw: {},
+      ...overrides,
+    } as never;
+  }
+
+  function upsFacts(tracking: string, overrides: Record<string, unknown> = {}) {
+    return {
+      trackingNumber: tracking,
+      recipientName: null,
+      companyName: null,
+      carrier: 'UPS',
+      service: 'UPS Ground',
+      labelCreatedAt: ago(100),
+      shipDate: null,
+      destinationCity: null,
+      destinationState: null,
+      destinationPostalCode: null,
+      destinationCountry: null,
+      upsStatus: 'Origin Scan',
+      upsStatusCode: 'OR',
+      upsStatusType: 'I',
+      firstCarrierScanAt: ago(90),
+      deliveredAt: null,
+      latestEvent: 'Origin Scan',
+      latestEventAt: ago(90),
+      exceptionType: null,
+      events: [
+        {
+          occurredAt: ago(90),
+          description: 'Origin Scan',
+          statusCode: 'OR',
+          statusType: 'I',
+          locationCity: null,
+          locationState: null,
+          locationCountry: null,
+          isPhysicalScan: true,
+          eventSource: 'ups_tracking' as const,
+          dedupKey: 'origin',
+        },
+      ],
+      raw: {},
+      ...overrides,
+    } as never;
+  }
+
+  /** Exactly what src/lib/sync/run.ts does for a ShipStation-only pass. */
+  async function runShipStationPass(tracking: string) {
+    const states = await mod.loadKnownStates([tracking]);
+    const known = states.get(tracking);
+    await mod.upsertShipment(
+      merge.mergeShipment(shipStationFacts(tracking), null, {
+        agingThresholdHours: 24,
+        manuallyResolved: known?.manuallyResolved ?? false,
+        knownLabelCreatedAt: known?.labelCreatedAt ?? null,
+        knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
+        knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+        knownDeliveredAt: known?.deliveredAt ?? null,
+        knownExceptionType: known?.exceptionType ?? null,
+        knownVoided: known?.voided ?? false,
+      }),
+    );
+  }
+
+  async function statusOf(tracking: string): Promise<string> {
+    const rows = await pool.query<{ normalized_status: string }>(
+      'SELECT normalized_status FROM shipments WHERE tracking_number = $1',
+      [tracking],
+    );
+    return rows[0]?.normalized_status ?? 'MISSING';
+  }
+
+  test('DELIVERED survives a ShipStation pass that cannot see the delivery', async () => {
+    const tracking = '1ZDOWNGRADE0000001';
+    await mod.upsertShipment(
+      merge.mergeShipment(
+        null,
+        upsFacts(tracking, {
+          deliveredAt: ago(20),
+          upsStatus: 'Delivered',
+          upsStatusCode: 'DL',
+          upsStatusType: 'D',
+        }),
+        { agingThresholdHours: 24 },
+      ),
+    );
+    assert.equal(await statusOf(tracking), 'DELIVERED');
+
+    await runShipStationPass(tracking);
+    assert.equal(await statusOf(tracking), 'DELIVERED', 'delivery must never be forgotten');
+  });
+
+  test('EXCEPTION survives a pass that cannot see the exception', async () => {
+    const tracking = '1ZDOWNGRADE0000002';
+    await mod.upsertShipment(
+      merge.mergeShipment(null, upsFacts(tracking, { exceptionType: 'Address correction required' }), {
+        agingThresholdHours: 24,
+      }),
+    );
+    assert.equal(await statusOf(tracking), 'EXCEPTION');
+
+    await runShipStationPass(tracking);
+    assert.equal(await statusOf(tracking), 'EXCEPTION', 'an exception must not be silently cleared');
+  });
+
+  test('VOIDED survives a UPS pass that knows nothing about the void', async () => {
+    const tracking = '1ZDOWNGRADE0000003';
+    await mod.upsertShipment(
+      merge.mergeShipment(shipStationFacts(tracking, { voided: true }), null, { agingThresholdHours: 24 }),
+    );
+    assert.equal(await statusOf(tracking), 'VOIDED');
+
+    const states = await mod.loadKnownStates([tracking]);
+    const known = states.get(tracking);
+    await mod.upsertShipment(
+      merge.mergeShipment(null, upsFacts(tracking), {
+        agingThresholdHours: 24,
+        knownLabelCreatedAt: known?.labelCreatedAt ?? null,
+        knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
+        knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+        knownDeliveredAt: known?.deliveredAt ?? null,
+        knownExceptionType: known?.exceptionType ?? null,
+        knownVoided: known?.voided ?? false,
+      }),
+    );
+    assert.equal(await statusOf(tracking), 'VOIDED');
+  });
+
+  test('delivery still supersedes a recorded exception', async () => {
+    const tracking = '1ZDOWNGRADE0000004';
+    await mod.upsertShipment(
+      merge.mergeShipment(null, upsFacts(tracking, { exceptionType: 'Delivery attempt failed' }), {
+        agingThresholdHours: 24,
+      }),
+    );
+    assert.equal(await statusOf(tracking), 'EXCEPTION');
+
+    // The package is redelivered successfully the next day.
+    const states = await mod.loadKnownStates([tracking]);
+    const known = states.get(tracking);
+    await mod.upsertShipment(
+      merge.mergeShipment(
+        null,
+        upsFacts(tracking, { deliveredAt: ago(2), upsStatus: 'Delivered', upsStatusCode: 'DL' }),
+        {
+          agingThresholdHours: 24,
+          knownLabelCreatedAt: known?.labelCreatedAt ?? null,
+          knownFirstCarrierScanAt: known?.firstCarrierScanAt ?? null,
+          knownPhysicalScanCount: known?.physicalScanCount ?? 0,
+          knownDeliveredAt: known?.deliveredAt ?? null,
+          knownExceptionType: known?.exceptionType ?? null,
+          knownVoided: known?.voided ?? false,
+        },
+      ),
+    );
+    assert.equal(await statusOf(tracking), 'DELIVERED', 'a resolved exception must not block delivery');
+  });
+});

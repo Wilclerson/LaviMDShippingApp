@@ -221,6 +221,9 @@ export async function findExistingTrackingNumbers(
 export interface KnownShipmentState {
   labelCreatedAt: Date | null;
   firstCarrierScanAt: Date | null;
+  deliveredAt: Date | null;
+  exceptionType: string | null;
+  voided: boolean;
   manuallyResolved: boolean;
   physicalScanCount: number;
 }
@@ -237,10 +240,14 @@ export async function loadKnownStates(
     tracking_number: string;
     label_created_at: Date | null;
     first_carrier_scan_at: Date | null;
+    delivered_at: Date | null;
+    exception_type: string | null;
+    normalized_status: NormalizedStatus;
     manually_resolved: boolean;
     physical_scan_count: string;
   }>(
-    `SELECT s.tracking_number, s.label_created_at, s.first_carrier_scan_at, s.manually_resolved,
+    `SELECT s.tracking_number, s.label_created_at, s.first_carrier_scan_at,
+            s.delivered_at, s.exception_type, s.normalized_status, s.manually_resolved,
             COALESCE(e.physical_scan_count, 0)::text AS physical_scan_count
        FROM shipments s
        LEFT JOIN (
@@ -259,6 +266,9 @@ export async function loadKnownStates(
       {
         labelCreatedAt: r.label_created_at,
         firstCarrierScanAt: r.first_carrier_scan_at,
+        deliveredAt: r.delivered_at,
+        exceptionType: r.exception_type,
+        voided: r.normalized_status === 'VOIDED',
         manuallyResolved: r.manually_resolved,
         physicalScanCount: Number.parseInt(r.physical_scan_count, 10) || 0,
       },
