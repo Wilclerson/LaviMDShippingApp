@@ -15,7 +15,7 @@ export async function POST(
 ) {
   // Both roles may add notes.
   const auth = await authorizeApi('shipments:note');
-  if (!auth.ok) return jsonError(auth.message, auth.status);
+  if (!auth.ok) return jsonError(auth.message, auth.status, auth.code);
 
   const { id } = await params;
   if (!UUID_RE.test(id)) return jsonError('Invalid shipment id.', 400);

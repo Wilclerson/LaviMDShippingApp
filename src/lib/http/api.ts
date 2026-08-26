@@ -9,8 +9,8 @@ import { env } from '../env';
 import { logger } from '../logger';
 import { safeEqual } from '../auth/session';
 
-export function jsonError(message: string, status: number): NextResponse {
-  return NextResponse.json({ error: message }, { status });
+export function jsonError(message: string, status: number, code?: string): NextResponse {
+  return NextResponse.json(code ? { error: message, code } : { error: message }, { status });
 }
 
 export function jsonOk<T extends Record<string, unknown>>(body: T, status = 200): NextResponse {

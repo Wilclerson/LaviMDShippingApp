@@ -13,7 +13,8 @@ import { logger } from '../logger';
 import { query, queryOne } from '../database/pool';
 import type { UserRole } from '../types';
 
-export const SESSION_COOKIE = 'lavimd_session';
+export { SESSION_COOKIE } from './cookie-name';
+import { SESSION_COOKIE } from './cookie-name';
 const SESSION_TTL_HOURS = 12;
 /** A session is extended on use, but never past this absolute lifetime. */
 const SESSION_ABSOLUTE_MAX_HOURS = 24 * 7;

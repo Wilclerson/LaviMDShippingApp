@@ -19,6 +19,7 @@ export function ResolveForm({ shipmentId }: { shipmentId: string }) {
     try {
       const response = await fetch(`/api/shipments/${shipmentId}/resolve`, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason, note: note.trim() || null }),
       });
@@ -95,7 +96,10 @@ export function UnresolveButton({ shipmentId }: { shipmentId: string }) {
   async function reopen() {
     setBusy(true);
     try {
-      await fetch(`/api/shipments/${shipmentId}/resolve`, { method: 'DELETE' });
+      await fetch(`/api/shipments/${shipmentId}/resolve`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
       router.refresh();
     } finally {
       setBusy(false);

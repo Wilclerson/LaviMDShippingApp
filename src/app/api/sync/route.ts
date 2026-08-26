@@ -11,7 +11,7 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const auth = await authorizeApi('sync:trigger');
-  if (!auth.ok) return jsonError(auth.message, auth.status);
+  if (!auth.ok) return jsonError(auth.message, auth.status, auth.code);
 
   await recordAudit({
     userId: auth.user.id,

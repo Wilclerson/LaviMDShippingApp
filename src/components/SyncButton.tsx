@@ -12,9 +12,26 @@ export function SyncButton() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch('/api/sync', { method: 'POST' });
+      // `credentials` is explicit on purpose. Its default varies by browser,
+      // webview and privacy setting, and when it resolves to "omit" the session
+      // cookie never leaves the page — the request reaches the server looking
+      // exactly like an anonymous one and is rejected at the edge, while normal
+      // page navigation keeps working because documents always carry cookies.
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 401) {
+          setMessage(
+            payload.code === 'session_cookie_missing'
+              ? 'Your browser did not send the session cookie. Sign in again, and check that cookies are enabled for this site.'
+              : 'Your session has expired. Please sign in again.',
+          );
+          return;
+        }
         setMessage(payload.error ?? 'Sync failed.');
         return;
       }

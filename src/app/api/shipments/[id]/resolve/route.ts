@@ -19,7 +19,7 @@ export async function POST(
 ) {
   // Resolving an exception is an admin-only action.
   const auth = await authorizeApi('shipments:resolve');
-  if (!auth.ok) return jsonError(auth.message, auth.status);
+  if (!auth.ok) return jsonError(auth.message, auth.status, auth.code);
 
   const { id } = await params;
   if (!UUID_RE.test(id)) return jsonError('Invalid shipment id.', 400);
@@ -48,7 +48,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await authorizeApi('shipments:resolve');
-  if (!auth.ok) return jsonError(auth.message, auth.status);
+  if (!auth.ok) return jsonError(auth.message, auth.status, auth.code);
 
   const { id } = await params;
   if (!UUID_RE.test(id)) return jsonError('Invalid shipment id.', 400);

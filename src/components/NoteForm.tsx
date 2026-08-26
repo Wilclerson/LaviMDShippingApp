@@ -19,6 +19,7 @@ export function NoteForm({ shipmentId }: { shipmentId: string }) {
     try {
       const response = await fetch(`/api/shipments/${shipmentId}/notes`, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: trimmed }),
       });
