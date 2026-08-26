@@ -161,17 +161,38 @@ export function isVoidActivity(activity: UpsActivityLike): boolean {
  * Fails closed — an activity we cannot confidently classify is NOT possession.
  */
 export function isPhysicalPossessionScan(activity: UpsActivityLike): boolean {
-  // A logical event is bookkeeping, never custody. This is the strongest and
-  // most explicitly documented signal UPS gives us, so it is checked first.
-  if (activity.logicalScan === true) return false;
-
+  // 1. Manifest and void ALWAYS win. This is the LABEL CREATED != SHIPPED
+  //    guarantee and nothing below may override it.
   if (isManifestOnlyActivity(activity)) return false;
   if (isVoidActivity(activity)) return false;
 
   const type = (activity.statusType ?? '').trim().toUpperCase();
   const code = (activity.statusCode ?? '').trim().toUpperCase();
 
+  // 2. An explicit possession code is trusted over `logicalScan`.
+  //
+  //    Live data (2026-08-26) shows UPS reports logicalScan on this account in
+  //    a way that contradicts its own documentation, in BOTH directions:
+  //
+  //      M / MP  "Shipper created a label"   logicalScan = false   (43 samples)
+  //      I / AR  "Arrived at Facility"       logicalScan = true    (43 samples)
+  //      I / DP  "Departed from Facility"    logicalScan = true    (42 samples)
+  //      I / OR  "Arrived at Facility"       logicalScan = false
+  //
+  //    So the flag cannot arbitrate custody on its own. A package cannot arrive
+  //    at or depart from a UPS facility unless UPS is holding it, and AR/DP were
+  //    always listed in POSSESSION_CODES — the logicalScan veto simply made those
+  //    entries unreachable, which is why every shipment stalled at SHIPPED and
+  //    IN_TRANSIT was never reached.
+  //
+  //    Note this cannot promote a label-only shipment: manifest events are
+  //    already excluded at step 1, and no manifest code appears here.
   if (POSSESSION_CODES.has(code)) return true;
+
+  // 3. For anything we cannot name, logicalScan is still respected as a veto.
+  //    It is only untrusted as *positive* evidence, never as a brake.
+  if (activity.logicalScan === true) return false;
+
   if (POSSESSION_STATUS_TYPES.has(type)) return true;
 
   // Unknown type AND unknown code: fail closed.

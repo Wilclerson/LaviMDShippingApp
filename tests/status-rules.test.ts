@@ -193,7 +193,15 @@ describe('UPS physical possession detection', () => {
     );
   });
 
-  test('logicalScan=true vetoes possession even with a movement-looking code', () => {
+  /**
+   * This assertion used to read the other way round: logicalScan=true vetoed
+   * possession even for a named movement code. Live UPS data (2026-08-26)
+   * disproved the premise — this account returns logicalScan=true on every
+   * AR/DP facility scan and logicalScan=false on manifest events, i.e. the flag
+   * is unreliable in both directions. A package cannot arrive at a UPS facility
+   * unless UPS is holding it, so a named possession code now outranks the flag.
+   */
+  test('a named possession code outranks logicalScan=true', () => {
     assert.equal(
       isPhysicalPossessionScan({
         statusType: 'I',
@@ -201,7 +209,34 @@ describe('UPS physical possession detection', () => {
         description: 'Arrival Scan',
         logicalScan: true,
       }),
+      true,
+    );
+  });
+
+  test('logicalScan=true still vetoes an UNNAMED code', () => {
+    // The veto survives precisely where it earns its keep: events we cannot
+    // classify. This is what keeps the rule failing closed.
+    assert.equal(
+      isPhysicalPossessionScan({
+        statusType: 'I',
+        statusCode: 'QQ',
+        description: 'Some future UPS event',
+        logicalScan: true,
+      }),
       false,
+    );
+  });
+
+  test('logicalScan can never promote a manifest event', () => {
+    assert.equal(
+      isPhysicalPossessionScan({
+        statusType: 'M',
+        statusCode: 'MP',
+        description: 'Shipper created a label, UPS has not received the package yet.',
+        logicalScan: false,
+      }),
+      false,
+      'LABEL CREATED != SHIPPED, whatever logicalScan says',
     );
   });
 
