@@ -33,6 +33,7 @@ import * as shipstation from '../shipstation/client';
 import { toShipStationFacts, buildStoreResolver, isStoreInScope, isUpsCarrier } from '../shipstation/normalize';
 import { fetchQuantumViewShipments } from '../ups/quantum-view';
 import { trackPackage } from '../ups/tracking';
+import { HttpError } from '../http/fetch';
 import type { ShipStationShipmentFacts, UpsShipmentFacts } from '../types';
 
 const log = logger.child({ component: 'sync' });
@@ -102,6 +103,35 @@ async function logError(scope: string, message: string, detail?: unknown): Promi
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Is this Quantum View telling us the account simply is not entitled to it?
+ *
+ * Quantum View needs a subscription configured on the UPS account, which is
+ * separate from the developer app's API grant. Without it UPS answers
+ * `400 / 330050 Invalid QV user` — verified live, invariant across every
+ * request shape, window and API version, while the SAME token drives Tracking
+ * happily.
+ *
+ * That is a configuration state, not a sync failure. ShipStation is the
+ * authoritative discovery source and UPS Tracking the authoritative possession
+ * source; Quantum View only adds completeness for labels that never touch
+ * ShipStation. So an unentitled account degrades this pass to "skipped" and the
+ * run still succeeds, rather than painting the dashboard red every 20 minutes
+ * over an optional feature.
+ */
+const QV_UNAVAILABLE_CODES = ['330050', '330051', '250002', '250003'];
+
+export function isQuantumViewUnavailable(err: unknown): boolean {
+  if (!(err instanceof HttpError)) return false;
+  if (err.status === 401 || err.status === 403) return true;
+  if (err.status !== 400) return false;
+  const body = err.body ?? '';
+  return (
+    QV_UNAVAILABLE_CODES.some((code) => body.includes(code)) ||
+    /invalid qv user|not subscribed|no subscription/i.test(body)
+  );
 }
 
 // --- Pass 1: ShipStation ------------------------------------------------------
@@ -342,11 +372,20 @@ export async function syncQuantumView(triggeredBy: string): Promise<PassResult> 
     result.detail = { pages, truncated, wholesaleDiscovered, inconclusive };
     if (result.errors > 0 || truncated) result.status = 'partial';
   } catch (err) {
-    result.status = 'failed';
-    result.errors += 1;
-    result.errorMessage = errorMessage(err);
-    log.error('Quantum View sync failed', { error: err });
-    await logError('ups', `Quantum View: ${result.errorMessage}`);
+    if (isQuantumViewUnavailable(err)) {
+      // Optional feature, unavailable on this account. Not a sync failure.
+      result.status = 'skipped';
+      result.errorMessage =
+        'Quantum View is not available on this UPS account (no subscription). ' +
+        'ShipStation and UPS Tracking are unaffected; wholesale-only labels stay undiscovered until it is enabled.';
+      log.warn('Quantum View unavailable; continuing without it', { error: err });
+    } else {
+      result.status = 'failed';
+      result.errors += 1;
+      result.errorMessage = errorMessage(err);
+      log.error('Quantum View sync failed', { error: err });
+      await logError('ups', `Quantum View: ${result.errorMessage}`);
+    }
   }
 
   await finishRun(runId, result, startedAt);

@@ -78,8 +78,48 @@ interface UpsPackage {
   packageAddress?: Array<{ type?: string; address?: UpsAddress; name?: string; attentionName?: string }>;
 }
 
+interface UpsWarning {
+  code?: string;
+  message?: string;
+}
+
 interface UpsTrackResponse {
-  trackResponse?: { shipment?: Array<{ inquiryNumber?: string; package?: UpsPackage[] }> };
+  trackResponse?: {
+    shipment?: Array<{
+      inquiryNumber?: string;
+      package?: UpsPackage[];
+      warnings?: UpsWarning[];
+      shipperNumber?: string;
+    }>;
+  };
+}
+
+/**
+ * UPS's "we have never heard of this tracking number".
+ *
+ * Verified live 2026-08-26: UPS does NOT return 404 for an unknown number. It
+ * returns HTTP 200 with
+ *
+ *   trackResponse.shipment[0].warnings[0] = {
+ *     code: "TW0001", message: "Tracking Information Not Found"
+ *   }
+ *
+ * and no `package` array. Treating that as an incidental empty parse hides a
+ * meaningful audit answer — "UPS has no record of this label" — behind what
+ * looks like a malformed response.
+ */
+export const TRACKING_NOT_FOUND_CODE = 'TW0001';
+
+export function isTrackingNotFound(payload: UpsTrackResponse | null | undefined): boolean {
+  const shipments = payload?.trackResponse?.shipment ?? [];
+  if (shipments.length === 0) return false;
+  return shipments.every((s) => {
+    const hasPackages = (s.package ?? []).length > 0;
+    if (hasPackages) return false;
+    return (s.warnings ?? []).some(
+      (w) => (w.code ?? '').trim().toUpperCase() === TRACKING_NOT_FOUND_CODE,
+    );
+  });
 }
 
 export class TrackingNotFoundError extends Error {
@@ -125,6 +165,9 @@ export function parseTrackingResponse(
   trackingNumber: string,
   payload: UpsTrackResponse,
 ): UpsShipmentFacts | null {
+  // An explicit "not found" is a real answer, not a parse failure.
+  if (isTrackingNotFound(payload)) return null;
+
   const shipments = payload.trackResponse?.shipment ?? [];
   const packages: UpsPackage[] = shipments.flatMap((s) => s.package ?? []);
   if (packages.length === 0) return null;
@@ -255,6 +298,14 @@ export async function trackPackage(trackingNumber: string): Promise<UpsShipmentF
       headers: await upsAuthHeaders(),
       timeoutMs: 20_000,
     });
+
+    // UPS answers an unknown number with 200 + TW0001, not 404. Log it as the
+    // audit result it is: UPS has no record of this label yet.
+    if (isTrackingNotFound(data)) {
+      log.debug('UPS reports no tracking information for this label (TW0001)', { trackingNumber });
+      return null;
+    }
+
     return parseTrackingResponse(trackingNumber, data);
   } catch (err) {
     if (err instanceof HttpError) {

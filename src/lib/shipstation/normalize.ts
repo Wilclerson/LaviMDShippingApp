@@ -10,6 +10,7 @@
 
 import type { ShipStationShipmentFacts } from '../types';
 import type { RawLabel, RawShipment, RawStore, RawAddress } from './client';
+import { storeDisplayName } from './store-names';
 import { env } from '../env';
 
 export function normalizeTrackingNumber(value: unknown): string | null {
@@ -164,11 +165,22 @@ export function isStoreInScope(
   return false;
 }
 
+/**
+ * The name shown for a shipment's store.
+ *
+ * The configured map wins. These are the business's own names for its stores
+ * and they must read the same on every row; ShipStation does not carry a store
+ * name on shipment records anyway, and its store-listing endpoints 404 here, so
+ * the remaining lookups are fallbacks for accounts where those do work.
+ */
 export function resolveStoreName(
   storeId: string | null,
   shipment: RawShipment | null,
   resolver: StoreResolver,
 ): string | null {
+  const configured = storeDisplayName(storeId);
+  if (configured) return configured;
+
   const fromShipment = pickString(shipment as Record<string, unknown> | undefined, [
     'store_name',
     'storeName',
