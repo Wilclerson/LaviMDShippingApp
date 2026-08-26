@@ -85,7 +85,7 @@ describe('daily report rendering', () => {
       NOW,
     );
     const attentionIndex = html.indexOf('NEEDS ATTENTION');
-    const agingIndex = html.indexOf('LABEL CREATED &gt;24 HOURS AGO');
+    const agingIndex = html.indexOf('Labels &gt;24 Hours — No UPS Scan');
     const successIndex = html.indexOf('confirmed with UPS');
     assert.ok(attentionIndex > -1);
     assert.ok(agingIndex > attentionIndex, 'aging section follows the attention heading');
@@ -132,20 +132,75 @@ describe('daily report rendering', () => {
     assert.ok(text.includes('Nothing needs attention'));
   });
 
-  test('all four summary counts are present', () => {
-    const { text } = renderDailyReport(
-      data({
-        confirmedCount: 52,
-        needsAttentionCount: 6,
-        agingLabels: [shipment(), shipment()],
-        exceptions: [shipment({ normalized_status: 'EXCEPTION' })],
-      }),
+  test('all seven summary metrics are present', () => {
+    const report = () =>
+      renderDailyReport(
+        data({
+          confirmedCount: 52,
+          needsAttentionCount: 6,
+          totalActive: 188,
+          inTransitCount: 102,
+          deliveredCount: 37,
+          agingLabels: [shipment(), shipment()],
+          exceptions: [shipment({ normalized_status: 'EXCEPTION' })],
+        }),
+        NOW,
+      );
+
+    const { text } = report();
+    for (const line of [
+      'Total Monitored:',
+      'Needs Attention:',
+      'Confirmed Shipped:',
+      'In Transit:',
+      'Delivered:',
+      'Labels >24 Hours:',
+      'Carrier Exceptions:',
+    ]) {
+      assert.ok(text.includes(line), `plain text is missing "${line}"`);
+    }
+    // The values, not just the labels.
+    assert.match(text, /Total Monitored:\s+188/);
+    assert.match(text, /In Transit:\s+102/);
+    assert.match(text, /Delivered:\s+37/);
+
+    const { html } = report();
+    for (const label of [
+      'Total Monitored',
+      'NEEDS ATTENTION',
+      'Confirmed Shipped',
+      'In Transit',
+      'Delivered',
+      'Labels &gt;24 Hours',
+      'Carrier Exceptions',
+    ]) {
+      assert.ok(html.includes(label), `html is missing the "${label}" metric`);
+    }
+    assert.ok(html.includes('>188<'), 'the Total Monitored value is rendered');
+    assert.ok(html.includes('>102<'), 'the In Transit value is rendered');
+  });
+
+  test('the branded header identifies the sender without a remote logo', () => {
+    const { html } = renderDailyReport(data(), NOW);
+    assert.ok(html.includes('Lavi MD'));
+    assert.ok(html.includes('Shipping Audit'));
+    assert.ok(html.includes('Chayim Therapeutics Fulfillment Operations'));
+    assert.ok(html.includes('Poppins'), 'the brand typeface is requested');
+    // Typography only: no remote image may be embedded.
+    assert.ok(!/<img/i.test(html), 'the header must not depend on a remote logo');
+  });
+
+  test('the layout is email-safe and responsive', () => {
+    const { html } = renderDailyReport(
+      data({ agingLabels: [shipment()], needsAttentionCount: 1 }),
       NOW,
     );
-    assert.ok(text.includes('Confirmed Shipped: 52'));
-    assert.ok(text.includes('Needs Attention: 6'));
-    assert.ok(text.includes('Labels >24 Hours Without Scan: 2'));
-    assert.ok(text.includes('Carrier Exceptions: 1'));
+    assert.ok(html.includes('@media only screen and (max-width:620px)'), 'has a mobile breakpoint');
+    assert.ok(html.includes('class="desk"'), 'wide-screen table variant');
+    assert.ok(html.includes('class="mob"'), 'stacked mobile variant');
+    assert.ok(html.includes('mso-hide:all'), 'the mobile variant is hidden from Outlook');
+    // Outlook ignores <style>, so every visual rule must also be inline.
+    assert.ok(!/<div[^>]+class="card"[^>]*>(?![^]*style=)/.test(html));
   });
 
   test('each attention row carries every required column', () => {
@@ -195,7 +250,8 @@ describe('daily report rendering', () => {
     assert.ok(html.includes('1ZAGING000000000001'));
     assert.ok(html.includes('1ZFRESH000000000001'));
     assert.ok(html.includes('1ZEXCEPT00000000001'));
-    assert.ok(html.includes('LABEL CREATED — WAITING FOR UPS'));
-    assert.ok(html.includes('CARRIER EXCEPTIONS'));
+    assert.ok(html.includes('Labels &gt;24 Hours — No UPS Scan'));
+    assert.ok(html.includes('Label Created — Waiting for UPS'));
+    assert.ok(html.includes('Carrier Exceptions'));
   });
 });
