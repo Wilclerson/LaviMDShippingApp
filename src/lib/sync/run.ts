@@ -28,6 +28,7 @@ import {
   findExistingTrackingNumbers,
 } from '../database/shipments';
 import { mergeShipment, quantumViewToUpsFacts } from '../shipment-normalizer/merge';
+import { lookupShipStationOrigin } from '../shipstation/origin-lookup';
 import * as shipstation from '../shipstation/client';
 import { toShipStationFacts, buildStoreResolver, isStoreInScope, isUpsCarrier } from '../shipstation/normalize';
 import { fetchQuantumViewShipments } from '../ups/quantum-view';
@@ -277,17 +278,44 @@ export async function syncQuantumView(triggeredBy: string): Promise<PassResult> 
 
     let wholesaleDiscovered = 0;
 
+    // Store names are not carried on ShipStation records and the store-listing
+    // endpoints 404 on this account, so an empty resolver is the honest input;
+    // the store id still reaches the shipment record.
+    const storeResolver = buildStoreResolver([]);
+    let inconclusive = 0;
+
     for (const shipment of shipments) {
       try {
         const known = knownStates.get(shipment.trackingNumber);
         const upsFacts = quantumViewToUpsFacts(shipment);
 
-        // If ShipStation already owns this tracking number the merge keeps its
-        // customer/order/store; otherwise it becomes a wholesale record.
+        // Absence from OUR database is not absence from ShipStation — the
+        // database only holds the configured stores. Before calling anything
+        // wholesale, ask ShipStation across every store.
         const alreadyKnown = existing.get(shipment.trackingNumber);
-        if (!alreadyKnown) wholesaleDiscovered += 1;
+        let shipstationFacts: ShipStationShipmentFacts | null = null;
 
-        const merged = mergeShipment(null, upsFacts, {
+        if (alreadyKnown?.source !== 'shipstation') {
+          try {
+            shipstationFacts = await lookupShipStationOrigin(
+              shipment.trackingNumber,
+              storeResolver,
+            );
+          } catch (err) {
+            // Inconclusive: we must not guess. Defer to the next cycle rather
+            // than write "Wholesale / Danielle" over a real ShipStation order.
+            inconclusive += 1;
+            result.errors += 1;
+            log.warn('ShipStation origin lookup inconclusive; deferring shipment', {
+              trackingNumber: shipment.trackingNumber,
+              error: err,
+            });
+            continue;
+          }
+          if (!shipstationFacts && !alreadyKnown) wholesaleDiscovered += 1;
+        }
+
+        const merged = mergeShipment(shipstationFacts, upsFacts, {
           agingThresholdHours: env.tuning.agingLabelHours,
           manuallyResolved: known?.manuallyResolved ?? false,
           knownLabelCreatedAt: known?.labelCreatedAt ?? null,
@@ -311,7 +339,7 @@ export async function syncQuantumView(triggeredBy: string): Promise<PassResult> 
       }
     }
 
-    result.detail = { pages, truncated, wholesaleDiscovered };
+    result.detail = { pages, truncated, wholesaleDiscovered, inconclusive };
     if (result.errors > 0 || truncated) result.status = 'partial';
   } catch (err) {
     result.status = 'failed';

@@ -192,6 +192,60 @@ export async function listShipments(
   return readPage<RawShipment>(payload, 'shipments');
 }
 
+/**
+ * Raised when ShipStation cannot give a trustworthy yes/no for a tracking
+ * number. Absence must never be inferred from an inconclusive answer — that is
+ * what would misattribute a real ShipStation shipment to Danielle.
+ */
+export class InconclusiveLookupError extends Error {
+  constructor(public readonly trackingNumber: string, reason: string) {
+    super(`ShipStation lookup for ${trackingNumber} was inconclusive: ${reason}`);
+    this.name = 'InconclusiveLookupError';
+  }
+}
+
+/**
+ * Find a label by tracking number across EVERY ShipStation store.
+ *
+ * Deliberately unscoped: this answers "does ShipStation know this tracking
+ * number at all?", which is a different question from "should we ingest this
+ * store?". A label from a store outside SHIPSTATION_STORE_IDS still proves the
+ * shipment is ShipStation-originated and therefore not Danielle's.
+ *
+ * Verified 2026-08-26: `?tracking_number=` is an exact server-side filter —
+ * a match returns total=1, an unknown number returns total=0. Several other
+ * parameter spellings are silently ignored and return the unfiltered set, so
+ * the match is re-checked here rather than trusted.
+ *
+ * Returns null only when ShipStation positively reports no such label.
+ */
+export async function findLabelByTrackingNumber(trackingNumber: string): Promise<RawLabel | null> {
+  const wanted = trackingNumber.replace(/\s+/g, '').toUpperCase();
+
+  const payload = await ssRequest<unknown>('/v2/labels', {
+    tracking_number: wanted,
+    page: 1,
+    page_size: 5,
+  });
+  const page = readPage<RawLabel>(payload, 'labels');
+
+  // Positive, trustworthy absence.
+  if (page.total === 0 && page.items.length === 0) return null;
+
+  const match = page.items.find(
+    (l) => (l.tracking_number ?? '').replace(/\s+/g, '').toUpperCase() === wanted,
+  );
+  if (match) return match;
+
+  // Non-zero total but no exact match in the returned window: either the filter
+  // was ignored (ShipStation has done this with other parameter names) or the
+  // match sits beyond the window. Either way we do not know, so say so.
+  throw new InconclusiveLookupError(
+    wanted,
+    `filter returned total=${page.total} with no exact match in ${page.items.length} item(s)`,
+  );
+}
+
 export async function getShipment(shipmentId: string): Promise<RawShipment | null> {
   try {
     return await ssRequest<RawShipment>(`/v2/shipments/${encodeURIComponent(shipmentId)}`);
