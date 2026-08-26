@@ -114,10 +114,24 @@ TLS is provisioned automatically once the record resolves.
 
 ## 7. Schedule the jobs
 
-`vercel.json` already declares the schedules. Vercel Cron authenticates itself,
-but these routes additionally require `CRON_SECRET`, so set the header. In the
-Vercel dashboard the cron invocation cannot send a custom header — use the query
-form for those, or drive the routes from an external scheduler.
+`vercel.json` already declares the schedules, and no extra wiring is needed.
+
+**Vercel Cron authenticates itself with `CRON_SECRET`.** When an environment
+variable named exactly `CRON_SECRET` exists on the project, Vercel sends
+`Authorization: Bearer $CRON_SECRET` on every cron invocation, which is what
+`authorizeCron` already checks. So:
+
+- leave `vercel.json` paths bare — no `?secret=` in a committed file
+- do not put the secret in a query string, where it lands in access logs
+- no external scheduler is required
+
+Verified in production on 2026-08-26: the first cron-triggered sync recorded
+`triggered_by: cron` in `sync_runs` and completed successfully. (An earlier
+revision of this document claimed the dashboard could not send a custom header
+and recommended the query form. That was wrong; it is corrected here.)
+
+If a cron invocation ever returns 401, check that the variable is named exactly
+`CRON_SECRET` and is scoped to the Production environment.
 
 **Cron expressions are UTC.**
 
@@ -135,8 +149,10 @@ Exactly one email goes out per day, year round.
 
 ### Driving the jobs from an external scheduler
 
-Any scheduler that can send an HTTP request works — GitHub Actions, cron-job.org,
-a cron entry on an existing server:
+Not needed on Vercel Pro, but available if you move off Vercel or run on Hobby,
+whose cron limits cannot satisfy a 20-minute sync. Any scheduler that can send an
+HTTP request works — GitHub Actions, cron-job.org, a cron entry on an existing
+server. Keep the secret in the scheduler's own secret store, never in a repo:
 
 ```bash
 curl -fsS -X POST \

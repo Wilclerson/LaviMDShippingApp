@@ -15,14 +15,27 @@ const SOURCE_LABELS: Record<string, string> = {
   ups_tracking: 'UPS Tracking',
 };
 
-function ConfigRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+/**
+ * `ok` accepts 'disabled' for an optional integration that is deliberately off.
+ * A red "Not configured" badge on a switch we turned off on purpose reads as a
+ * fault and sends people looking for a problem that is not there.
+ */
+function ConfigRow({
+  label,
+  ok,
+  detail,
+}: {
+  label: string;
+  ok: boolean | 'disabled';
+  detail: string;
+}) {
+  const tone = ok === 'disabled' ? 'neutral' : ok ? 'success' : 'critical';
+  const text = ok === 'disabled' ? 'Disabled' : ok ? 'Configured' : 'Not configured';
   return (
     <tr>
       <td style={{ fontWeight: 500 }}>{label}</td>
       <td>
-        <span className={`badge tone-${ok ? 'success' : 'critical'}`}>
-          {ok ? 'Configured' : 'Not configured'}
-        </span>
+        <span className={`badge tone-${tone}`}>{text}</span>
       </td>
       <td className="muted">{detail}</td>
     </tr>
@@ -128,10 +141,10 @@ export default async function SystemPage() {
                 />
                 <ConfigRow
                   label="UPS Quantum View"
-                  ok={env.ups.configured() && env.ups.quantumViewEnabled}
+                  ok={!env.ups.quantumViewEnabled ? 'disabled' : env.ups.configured()}
                   detail={
                     !env.ups.quantumViewEnabled
-                      ? 'Disabled — wholesale (Danielle) labels will NOT be discovered'
+                      ? 'Disabled — not required for current ShipStation coverage'
                       : env.ups.quantumViewSubscriptions.length > 0
                         ? `Subscriptions: ${env.ups.quantumViewSubscriptions.join(', ')}`
                         : 'All subscriptions on the account'

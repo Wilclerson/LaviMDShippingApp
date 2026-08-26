@@ -5,11 +5,23 @@
  *
  *   1. ShipStation  — pull recently created labels, enrich with the shipment
  *                     record, keep the ones from the Lavi MD stores.
- *   2. Quantum View — pull UPS account activity. This is what discovers labels
- *                     Danielle created directly in UPS, and it supplies the
- *                     authoritative Origin (possession) scan.
+ *   2. Quantum View — OPTIONAL. Pulls UPS account-wide activity, which would
+ *                     catch labels created directly in UPS without ever
+ *                     touching ShipStation.
+ *
+ *                     On this account that set is currently empty: Danielle's
+ *                     manual/wholesale labels are purchased THROUGH ShipStation
+ *                     and land in store se-4507974, which pass 1 ingests. Three
+ *                     tracking numbers taken from the tool she uses all resolved
+ *                     to that store, and in each case the ShipStation label
+ *                     preceded the UPS manifest by ~3 seconds — the order of
+ *                     events you only get when ShipStation is the originator.
+ *
+ *                     So this pass adds completeness, not coverage, and the sync
+ *                     is fully correct with it disabled.
  *   3. Tracking     — poll UPS tracking for shipments we already know about,
- *                     prioritising the ones with no physical scan yet.
+ *                     prioritising the ones with no physical scan yet. This is
+ *                     the authoritative source for physical possession.
  *
  * Failure policy: a failing pass is logged and recorded, and the remaining
  * passes still run. A sync NEVER deletes or blanks existing shipment data — the
@@ -377,7 +389,8 @@ export async function syncQuantumView(triggeredBy: string): Promise<PassResult> 
       result.status = 'skipped';
       result.errorMessage =
         'Quantum View is not available on this UPS account (no subscription). ' +
-        'ShipStation and UPS Tracking are unaffected; wholesale-only labels stay undiscovered until it is enabled.';
+        'Not required for current ShipStation coverage — discovery and possession ' +
+        'verification are unaffected.';
       log.warn('Quantum View unavailable; continuing without it', { error: err });
     } else {
       result.status = 'failed';
