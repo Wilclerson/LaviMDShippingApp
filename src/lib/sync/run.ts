@@ -184,8 +184,10 @@ export async function syncShipStation(triggeredBy: string): Promise<PassResult> 
         if (!fact) continue;
 
         // This audit is about UPS possession; other carriers are recorded but
-        // never expected to gain a UPS scan.
-        if (!isUpsCarrier(fact.carrier)) nonUps += 1;
+        // never expected to gain a UPS scan. A UPS 1Z tracking number counts as
+        // UPS even when the carrier code says otherwise (Worldwide Express
+        // resells UPS labels as `wwex_parcel`).
+        if (!isUpsCarrier(fact.carrier, fact.trackingNumber)) nonUps += 1;
 
         facts.push(fact);
       }

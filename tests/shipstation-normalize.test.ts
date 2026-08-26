@@ -12,6 +12,7 @@ import {
   carrierDisplayName,
   serviceDisplayName,
   isUpsCarrier,
+  isUpsTrackingNumber,
 } from '../src/lib/shipstation/normalize';
 
 const resolver = buildStoreResolver([
@@ -53,6 +54,63 @@ describe('carrier and service naming', () => {
     assert.equal(serviceDisplayName('ups_2nd_day_air'), 'UPS 2nd Day Air');
     assert.equal(serviceDisplayName('UPS Ground'), 'UPS Ground', 'already-readable values pass through');
     assert.equal(serviceDisplayName(null), null);
+  });
+});
+
+/**
+ * Lavi MD buys UPS labels through Worldwide Express, so ShipStation reports
+ * `wwex_parcel` on labels carrying genuine UPS 1Z tracking numbers. Classifying
+ * those as non-UPS excluded every one of them from tracking verification, so no
+ * shipment could ever reach "Confirmed Shipped".
+ */
+describe('UPS classification by tracking number, not carrier code', () => {
+  const UPS_1Z = '1Z1610V50390643181';
+  const FEDEX = '772345678901';
+  const USPS = '9400111899223197428490';
+
+  test('wwex_parcel with a valid 1Z tracking number is UPS', () => {
+    assert.equal(isUpsCarrier('WWEX_PARCEL', UPS_1Z), true);
+    assert.equal(isUpsCarrier(carrierDisplayName('wwex_parcel'), UPS_1Z), true);
+  });
+
+  test('an unknown carrier with a valid 1Z tracking number is UPS', () => {
+    assert.equal(isUpsCarrier('SOME_NEW_RESELLER', UPS_1Z), true);
+    assert.equal(isUpsCarrier(null, UPS_1Z), true);
+    assert.equal(isUpsCarrier('', UPS_1Z), true);
+  });
+
+  test('a non-UPS tracking number is NOT made UPS by its carrier code', () => {
+    assert.equal(isUpsCarrier('WWEX_PARCEL', FEDEX), false);
+    assert.equal(isUpsCarrier('WWEX_PARCEL', USPS), false);
+    assert.equal(isUpsCarrier('WWEX_PARCEL', null), false);
+    assert.equal(isUpsCarrier('WWEX_PARCEL'), false);
+  });
+
+  test('ordinary UPS carrier codes keep working', () => {
+    assert.equal(isUpsCarrier('UPS'), true);
+    assert.equal(isUpsCarrier('UPS', null), true);
+    assert.equal(isUpsCarrier('ups_ground', FEDEX), true, 'carrier code still counts on its own');
+    assert.equal(isUpsCarrier(carrierDisplayName('ups'), UPS_1Z), true);
+    assert.equal(isUpsCarrier('FedEx', FEDEX), false);
+  });
+
+  test('1Z format validation is strict about length and alphabet', () => {
+    assert.equal(isUpsTrackingNumber(UPS_1Z), true);
+    assert.equal(isUpsTrackingNumber('1z1610v50390643181'), true, 'case-insensitive');
+    assert.equal(isUpsTrackingNumber(' 1Z1610V5 0390643181 '), true, 'whitespace tolerated');
+    assert.equal(isUpsTrackingNumber('1Z1610V5039064318'), false, '17 chars — too short');
+    assert.equal(isUpsTrackingNumber('1Z1610V503906431812'), false, '19 chars — too long');
+    assert.equal(isUpsTrackingNumber('1Z1610V50390-43181'), false, 'punctuation rejected');
+    assert.equal(isUpsTrackingNumber('2Z1610V50390643181'), false, 'wrong prefix');
+    assert.equal(isUpsTrackingNumber(FEDEX), false);
+    assert.equal(isUpsTrackingNumber(null), false);
+    assert.equal(isUpsTrackingNumber(''), false);
+  });
+
+  test('the carrier code itself is preserved for display and audit', () => {
+    // The shipment routes to UPS verification, but nothing rewrites the source.
+    assert.equal(carrierDisplayName('wwex_parcel'), 'WWEX_PARCEL');
+    assert.equal(isUpsCarrier(carrierDisplayName('wwex_parcel'), UPS_1Z), true);
   });
 });
 

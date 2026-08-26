@@ -87,7 +87,40 @@ export function serviceDisplayName(code: string | null): string | null {
     .replace(/\b(\d)(St|Nd|Rd|Th)\b/g, (_m, d, suffix) => `${d}${suffix.toLowerCase()}`);
 }
 
-export function isUpsCarrier(carrier: string | null): boolean {
+/**
+ * Is this a structurally valid UPS "1Z" tracking number?
+ *
+ *   1Z + 6-char shipper number + 2-digit service code + 8 more characters
+ *   = 18 characters total.
+ *
+ * Only the format is checked, deliberately. The check digit is not verified:
+ * a false negative here would silently exclude a real package from UPS
+ * polling, which is precisely the failure this function exists to prevent.
+ * A false positive costs one wasted tracking lookup that returns nothing.
+ */
+export function isUpsTrackingNumber(trackingNumber: string | null): boolean {
+  if (!trackingNumber) return false;
+  return /^1Z[0-9A-Z]{16}$/.test(trackingNumber.replace(/\s+/g, '').toUpperCase());
+}
+
+/**
+ * Should this shipment be verified against UPS?
+ *
+ * The carrier code alone is not sufficient. Lavi MD buys UPS labels through
+ * Worldwide Express, so ShipStation reports `carrier_code: "wwex_parcel"` on
+ * labels that carry genuine UPS 1Z tracking numbers and move through the UPS
+ * network. Trusting the code alone excluded every one of those shipments from
+ * tracking, so nothing could ever reach "Confirmed Shipped".
+ *
+ * A valid 1Z tracking number is therefore treated as UPS whatever the carrier
+ * code says. The reverse does not hold: a non-1Z number is not made UPS by its
+ * carrier code, because there would be nothing for UPS tracking to look up.
+ *
+ * This affects verification routing only. The original ShipStation carrier code
+ * is still stored and displayed unchanged — see `carrierDisplayName`.
+ */
+export function isUpsCarrier(carrier: string | null, trackingNumber: string | null = null): boolean {
+  if (isUpsTrackingNumber(trackingNumber)) return true;
   return (carrier ?? '').toUpperCase().includes('UPS');
 }
 

@@ -290,7 +290,12 @@ export async function selectTrackingRefreshCandidates(
   const rows = await query<{ tracking_number: string }>(
     `SELECT tracking_number
        FROM shipments
-      WHERE carrier ILIKE '%UPS%'
+      -- A UPS 1Z tracking number is polled whatever the carrier column says.
+      -- Labels bought through Worldwide Express arrive as "WWEX_PARCEL" but
+      -- carry genuine UPS tracking numbers; matching on the carrier alone
+      -- excluded every one of them from verification. The carrier column keeps
+      -- the original ShipStation value for display and audit.
+      WHERE (carrier ILIKE '%UPS%' OR tracking_number ~ '^1Z[0-9A-Z]{16}$')
         AND manually_resolved = FALSE
         AND normalized_status <> 'VOIDED'
         AND (
