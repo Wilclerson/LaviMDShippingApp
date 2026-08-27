@@ -49,12 +49,15 @@ describe('role permissions', () => {
     assert.equal(can('admin', 'sync:trigger'), true);
   });
 
-  test('fulfillment can view, search and note but not resolve or manage users', () => {
+  test('fulfillment can view, search, note and refresh but not resolve or manage users', () => {
     assert.equal(can('fulfillment', 'shipments:view'), true);
     assert.equal(can('fulfillment', 'shipments:search'), true);
     assert.equal(can('fulfillment', 'shipments:note'), true);
+    // Refreshing only re-reads ShipStation and UPS; it changes no decision a
+    // human has made, so the warehouse can do it from the dashboard.
+    assert.equal(can('fulfillment', 'sync:trigger'), true);
+    // The powers that alter records or access stay admin-only.
     assert.equal(can('fulfillment', 'shipments:resolve'), false);
     assert.equal(can('fulfillment', 'users:manage'), false);
-    assert.equal(can('fulfillment', 'sync:trigger'), false);
   });
 });

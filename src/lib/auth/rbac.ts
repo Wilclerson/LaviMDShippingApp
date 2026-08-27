@@ -28,7 +28,23 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'users:manage',
     'system:view',
   ],
-  fulfillment: ['shipments:view', 'shipments:search', 'shipments:note', 'system:view'],
+  /**
+   * Fulfillment holds `sync:trigger` so the warehouse can pull fresh carrier
+   * data from the dashboard's "Refresh Data" button without waiting for the
+   * 20-minute cron or asking an administrator.
+   *
+   * This is a read-refresh, not a privilege: a sync only pulls from ShipStation
+   * and UPS and reconciles what they report. It cannot resolve an exception,
+   * edit a shipment or change a user — those stay admin-only, and the write-once
+   * database triggers bound what any sync can do regardless of who starts it.
+   */
+  fulfillment: [
+    'shipments:view',
+    'shipments:search',
+    'shipments:note',
+    'sync:trigger',
+    'system:view',
+  ],
 };
 
 export function can(role: UserRole, permission: Permission): boolean {

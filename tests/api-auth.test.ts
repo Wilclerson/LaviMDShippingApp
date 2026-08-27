@@ -65,7 +65,7 @@ describe('session cookie name has one definition', () => {
 
 describe('every client fetch sends credentials explicitly', () => {
   const components = [
-    'src/components/SyncButton.tsx',
+    'src/components/SyncTrigger.tsx',
     'src/components/NoteForm.tsx',
     'src/components/ResolveForm.tsx',
   ];
@@ -131,7 +131,7 @@ describe('auth failures are distinguishable', () => {
   });
 });
 
-describe('the manual sync stays admin-authenticated', () => {
+describe('the manual sync stays authenticated', () => {
   test('/api/sync still requires the sync:trigger permission', () => {
     const route = read('src/app/api/sync/route.ts');
     assert.ok(route.includes("authorizeApi('sync:trigger')"));
@@ -145,10 +145,16 @@ describe('the manual sync stays admin-authenticated', () => {
     assert.ok(publicPaths.includes("'/api/cron'"), 'cron keeps its own secret-based auth');
   });
 
-  test('only admins hold sync:trigger', async () => {
+  /**
+   * This assertion used to read "only admins hold sync:trigger". Fulfillment now
+   * holds it too, so the dashboard's Refresh Data button works for the warehouse
+   * without an administrator. A sync only re-reads ShipStation and UPS; the
+   * admin-only powers are asserted separately below and are unchanged.
+   */
+  test('both signed-in roles may trigger a sync', async () => {
     const { can } = await import('../src/lib/auth/rbac');
     assert.equal(can('admin', 'sync:trigger'), true);
-    assert.equal(can('fulfillment', 'sync:trigger'), false);
+    assert.equal(can('fulfillment', 'sync:trigger'), true);
   });
 });
 

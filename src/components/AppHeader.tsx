@@ -2,13 +2,21 @@ import Link from 'next/link';
 import { formatDateTime, DISPLAY_TZ } from '@/lib/time';
 import type { SessionUser } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
+import { RefreshDataButton } from './SyncTrigger';
 
 export function AppHeader({
   user,
   lastSyncAt,
+  showRefresh = false,
 }: {
   user: SessionUser;
   lastSyncAt: Date | null;
+  /**
+   * Renders "Refresh Data" beside the Last sync readout. Dashboard only — the
+   * System page has its own trigger, and repeating it on every page would be
+   * noise.
+   */
+  showRefresh?: boolean;
 }) {
   return (
     <header className="app-header">
@@ -31,6 +39,11 @@ export function AppHeader({
             {lastSyncAt ? formatDateTime(lastSyncAt) : <span className="muted">never</span>}
           </div>
           <div className="subtle">Times shown in {DISPLAY_TZ.replace('_', ' ')}</div>
+          {showRefresh && can(user.role, 'sync:trigger') && (
+            <div style={{ marginTop: 6 }}>
+              <RefreshDataButton />
+            </div>
+          )}
         </div>
 
         <div style={{ fontSize: 13, textAlign: 'right' }}>

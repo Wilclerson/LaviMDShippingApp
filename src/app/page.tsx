@@ -100,7 +100,7 @@ export default async function DashboardPage({
 
   return (
     <>
-      <AppHeader user={user} lastSyncAt={lastSyncAt} />
+      <AppHeader user={user} lastSyncAt={lastSyncAt} showRefresh />
       <main className="container">
         {/* Synchronisation warnings: a stale sync means the numbers below
             cannot be trusted, so it is stated loudly rather than hidden. */}

@@ -3,7 +3,7 @@ import { getSyncHealth, getLastSuccessfulSyncAt } from '@/lib/sync/run';
 import { getRecentErrors } from '@/lib/database/queries';
 import { getRecentDeliveries } from '@/lib/email/daily-report';
 import { AppHeader } from '@/components/AppHeader';
-import { SyncButton } from '@/components/SyncButton';
+import { SyncButton } from '@/components/SyncTrigger';
 import { formatDateTime, DISPLAY_TZ } from '@/lib/time';
 import { env } from '@/lib/env';
 
