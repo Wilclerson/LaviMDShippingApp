@@ -11,6 +11,8 @@
  */
 
 import type { NormalizedStatus } from '../types';
+import { evaluateOverdue } from './overdue';
+import type { BusinessCalendarOptions } from '../business-calendar';
 
 export interface StatusInputs {
   /** When the shipping label was created. */
@@ -27,6 +29,15 @@ export interface StatusInputs {
   manuallyResolved: boolean;
   /** Hours after label creation before a scan-less label is escalated. */
   agingThresholdHours: number;
+  /**
+   * ShipStation service description. Decides whether a Thursday/Friday label
+   * was printed for same-day dispatch (Ground-safe) or held for Monday
+   * (air/cold). Absent service falls back to the air/cold assumption, which is
+   * the more forgiving of the two.
+   */
+  service?: string | null;
+  /** Override the business calendar. Tests and future configuration only. */
+  calendar?: BusinessCalendarOptions;
 }
 
 export function deriveStatus(inputs: StatusInputs, now: Date = new Date()): NormalizedStatus {
@@ -58,10 +69,19 @@ export function deriveStatus(inputs: StatusInputs, now: Date = new Date()): Norm
   // family — the reason this application exists.
   if (!labelCreatedAt) return 'UNKNOWN';
 
-  const ageHours = (now.getTime() - labelCreatedAt.getTime()) / 3_600_000;
-  if (ageHours >= agingThresholdHours) return 'AGING_LABEL';
+  // Overdue is a calendar question, not an hours question: a weekend or a
+  // holiday is not a delay, and Thursday/Friday cold labels are printed for
+  // Monday. `evaluateOverdue` owns that reasoning; the floor keeps
+  // AGING_LABEL_HOURS meaningful as an operator-facing minimum.
+  const { overdue } = evaluateOverdue({
+    labelCreatedAt,
+    service: inputs.service ?? null,
+    minimumHours: agingThresholdHours,
+    now,
+    calendar: inputs.calendar,
+  });
 
-  return 'LABEL_CREATED';
+  return overdue ? 'AGING_LABEL' : 'LABEL_CREATED';
 }
 
 /**
@@ -90,59 +110,59 @@ export interface StatusPresentation {
 
 export const STATUS_PRESENTATION: Record<NormalizedStatus, StatusPresentation> = {
   AGING_LABEL: {
-    label: 'Label >24 Hours',
-    display: '🚨 Label >24 Hours — No UPS Scan',
+    label: 'Overdue',
+    display: 'Overdue — No UPS Scan',
     tone: 'critical',
     needsAttention: true,
     description:
-      'A label was created more than 24 hours ago and UPS still has no physical possession scan. The package may still be inside the facility.',
+      'This label is past the day we expected to hand it to UPS, and UPS still has no physical possession scan. The package may still be inside the facility.',
   },
   EXCEPTION: {
-    label: 'Carrier Exception',
-    display: '🚨 Carrier Exception',
+    label: 'Delivery Problem',
+    display: 'Delivery Problem',
     tone: 'critical',
     needsAttention: true,
     description: 'UPS reported an exception, failed delivery, return, damage, or address issue.',
   },
   LABEL_CREATED: {
-    label: 'Label Created',
-    display: '⚠️ Label Created — No Carrier Scan',
+    label: 'Awaiting UPS',
+    display: 'Awaiting UPS',
     tone: 'warning',
     needsAttention: true,
     description:
-      'A UPS label exists but there is no physical carrier possession scan. The package may still be inside the facility.',
+      'A label exists and UPS has not scanned it yet, but it is still within the expected window for its service and the day it was printed.',
   },
   SHIPPED: {
     label: 'Confirmed Shipped',
-    display: '✅ Confirmed Shipped',
+    display: 'Confirmed Shipped',
     tone: 'success',
     needsAttention: false,
     description: 'UPS recorded its first physical possession/acceptance/origin scan.',
   },
   IN_TRANSIT: {
     label: 'In Transit',
-    display: '✅ In Transit',
+    display: 'In Transit',
     tone: 'success',
     needsAttention: false,
     description: 'UPS has the package and it is moving through the network.',
   },
   DELIVERED: {
     label: 'Delivered',
-    display: '✅ Delivered',
+    display: 'Delivered',
     tone: 'success',
     needsAttention: false,
     description: 'UPS confirms delivery.',
   },
   VOIDED: {
     label: 'Voided',
-    display: '◻️ Label Voided',
+    display: 'Label Voided',
     tone: 'neutral',
     needsAttention: false,
     description: 'The label was voided. No package is expected to ship against it.',
   },
   UNKNOWN: {
     label: 'Unknown',
-    display: '◻️ Awaiting Carrier Data',
+    display: 'Awaiting Carrier Data',
     tone: 'neutral',
     needsAttention: false,
     description: 'Not enough carrier information yet to classify this shipment.',

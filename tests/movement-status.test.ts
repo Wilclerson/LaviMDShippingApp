@@ -84,8 +84,11 @@ describe('status progression over live UPS sequences', () => {
     assert.equal(merged.hasPhysicalScan, false);
   });
 
-  test('manifest only, past the threshold -> AGING_LABEL (still not shipped)', () => {
-    const { status, merged } = statusOf([MANIFEST]); // 6 days later
+  test('manifest only, past its hand-over day -> AGING_LABEL (still not shipped)', () => {
+    // Printed Thu 2026-08-20. On the Thursday/Friday hold-for-Monday path that
+    // means expected tender Mon 24th and due at the end of Tue 25th, so it is
+    // judged on the Thursday after — comfortably past due either way.
+    const { status, merged } = statusOf([MANIFEST], new Date('2026-08-27T16:00:00Z'));
     assert.equal(status, 'AGING_LABEL');
     assert.equal(merged.firstCarrierScanAt, null, 'age never manufactures possession');
   });

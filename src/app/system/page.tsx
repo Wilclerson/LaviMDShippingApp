@@ -1,4 +1,4 @@
-import { requireUser, can } from '@/lib/auth/rbac';
+import { requirePermission, can } from '@/lib/auth/rbac';
 import { getSyncHealth, getLastSuccessfulSyncAt } from '@/lib/sync/run';
 import { getRecentErrors } from '@/lib/database/queries';
 import { getRecentDeliveries } from '@/lib/email/daily-report';
@@ -43,7 +43,8 @@ function ConfigRow({
 }
 
 export default async function SystemPage() {
-  const user = await requireUser('/system');
+  // Admin-only: this page exposes integration configuration and error logs.
+  const user = await requirePermission('system:view', '/system');
 
   const [health, lastSyncAt, errors, deliveries] = await Promise.all([
     getSyncHealth(),

@@ -85,7 +85,7 @@ describe('daily report rendering', () => {
       NOW,
     );
     const attentionIndex = html.indexOf('NEEDS ATTENTION');
-    const agingIndex = html.indexOf('Labels &gt;24 Hours — No UPS Scan');
+    const agingIndex = html.indexOf('Overdue — No UPS Scan');
     const successIndex = html.indexOf('confirmed with UPS');
     assert.ok(attentionIndex > -1);
     assert.ok(agingIndex > attentionIndex, 'aging section follows the attention heading');
@@ -154,8 +154,8 @@ describe('daily report rendering', () => {
       'Confirmed Shipped:',
       'In Transit:',
       'Delivered:',
-      'Labels >24 Hours:',
-      'Carrier Exceptions:',
+      'Overdue (no scan):',
+      'Delivery Problems:',
     ]) {
       assert.ok(text.includes(line), `plain text is missing "${line}"`);
     }
@@ -171,8 +171,8 @@ describe('daily report rendering', () => {
       'Confirmed Shipped',
       'In Transit',
       'Delivered',
-      'Labels &gt;24 Hours',
-      'Carrier Exceptions',
+      'Overdue — No UPS Scan',
+      'Delivery Problems',
     ]) {
       assert.ok(html.includes(label), `html is missing the "${label}" metric`);
     }
@@ -250,8 +250,8 @@ describe('daily report rendering', () => {
     assert.ok(html.includes('1ZAGING000000000001'));
     assert.ok(html.includes('1ZFRESH000000000001'));
     assert.ok(html.includes('1ZEXCEPT00000000001'));
-    assert.ok(html.includes('Labels &gt;24 Hours — No UPS Scan'));
-    assert.ok(html.includes('Label Created — Waiting for UPS'));
-    assert.ok(html.includes('Carrier Exceptions'));
+    assert.ok(html.includes('Overdue — No UPS Scan'));
+    assert.ok(html.includes('Awaiting UPS'));
+    assert.ok(html.includes('Delivery Problem'));
   });
 });

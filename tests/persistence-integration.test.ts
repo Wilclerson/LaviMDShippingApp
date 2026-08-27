@@ -63,6 +63,15 @@ describeDb('persistent exceptions and report data', () => {
     await pool.closePool();
   });
 
+  /**
+   * Overdue is a calendar judgement now, not an hours count: a Thursday air
+   * label is not due until the Tuesday after. So fixtures that are meant to be
+   * overdue use OVERDUE_HOURS — comfortably past the longest possible window on
+   * any weekday — rather than a number that happens to work on a Wednesday.
+   */
+  const OVERDUE_HOURS = 24 * 14;
+  const FRESH_HOURS = 2;
+
   function label(tracking: string, hoursAgo: number) {
     return merge.mergeShipment(
       {
@@ -94,12 +103,12 @@ describeDb('persistent exceptions and report data', () => {
 
   test('an unscanned label appears in the report every day until it is resolved', async () => {
     const tracking = '1ZPERSIST000000001';
-    await mod.upsertShipment(label(tracking, 30));
+    await mod.upsertShipment(label(tracking, OVERDUE_HOURS));
 
     // Monday, Tuesday, Wednesday: three consecutive report generations.
     for (let day = 0; day < 3; day++) {
       // Each morning re-runs the sync first; the label is seen again unchanged.
-      await mod.upsertShipment(label(tracking, 30 + day * 24));
+      await mod.upsertShipment(label(tracking, OVERDUE_HOURS + day * 24));
       await mod.refreshAgingLabels(24);
 
       const data = await queries.getDailyReportData(new Date(Date.now() - 24 * HOUR));
@@ -111,7 +120,7 @@ describeDb('persistent exceptions and report data', () => {
 
   test('resolving it removes it from every subsequent report', async () => {
     const tracking = '1ZPERSIST000000002';
-    const { id } = await mod.upsertShipment(label(tracking, 40));
+    const { id } = await mod.upsertShipment(label(tracking, OVERDUE_HOURS));
     await mod.refreshAgingLabels(24);
 
     let data = await queries.getDailyReportData(new Date(Date.now() - 24 * HOUR));
@@ -146,7 +155,7 @@ describeDb('persistent exceptions and report data', () => {
 
   test('a UPS scan arriving later clears it without any human action', async () => {
     const tracking = '1ZPERSIST000000003';
-    await mod.upsertShipment(label(tracking, 30));
+    await mod.upsertShipment(label(tracking, OVERDUE_HOURS));
     await mod.refreshAgingLabels(24);
 
     let data = await queries.getDailyReportData(new Date(Date.now() - 24 * HOUR));
@@ -192,7 +201,7 @@ describeDb('persistent exceptions and report data', () => {
           ],
           raw: {},
         },
-        { agingThresholdHours: 24, knownLabelCreatedAt: ago(30) },
+        { agingThresholdHours: 24, knownLabelCreatedAt: ago(OVERDUE_HOURS) },
       ),
     );
 
@@ -230,8 +239,8 @@ describeDb('persistent exceptions and report data', () => {
   });
 
   test('dashboard counts agree with the filtered lists', async () => {
-    await mod.upsertShipment(label('1ZPERSIST000000006', 40));
-    await mod.upsertShipment(label('1ZPERSIST000000007', 2));
+    await mod.upsertShipment(label('1ZPERSIST000000006', OVERDUE_HOURS));
+    await mod.upsertShipment(label('1ZPERSIST000000007', FRESH_HOURS));
     await mod.refreshAgingLabels(24);
 
     const stats = await queries.getDashboardStats();

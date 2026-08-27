@@ -1,10 +1,19 @@
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth/rbac';
-import { getDashboardStats, listShipments, isShipmentFilter, type ShipmentFilter } from '@/lib/database/queries';
+import {
+  getDashboardStats,
+  listShipments,
+  isShipmentFilter,
+  isSourceFilter,
+  type ShipmentFilter,
+  type SourceFilter,
+} from '@/lib/database/queries';
 import { getSyncHealth, getLastSuccessfulSyncAt } from '@/lib/sync/run';
 import { AppHeader } from '@/components/AppHeader';
 import { ShipmentTable } from '@/components/ShipmentTable';
-import { DashboardFilters, SearchAndDateForm } from '@/components/DashboardFilters';
+import { DashboardFilters, SearchAndDateForm, ActiveView, type ViewState } from '@/components/DashboardFilters';
+import { RefreshDataButton } from '@/components/SyncTrigger';
+import { can } from '@/lib/auth/rbac';
 import { env } from '@/lib/env';
 import { formatDateTime } from '@/lib/time';
 
@@ -22,24 +31,27 @@ function StatCard({
   label,
   value,
   tone,
-  filter,
+  href,
   active,
   sub,
+  quiet = false,
 }: {
   label: string;
   value: number;
   tone: 'critical' | 'warning' | 'success' | 'neutral';
-  filter: ShipmentFilter;
+  href: string;
   active: boolean;
   sub?: string;
+  /** Context, not a call to action: rendered without colour weight. */
+  quiet?: boolean;
 }) {
   return (
     <Link
-      href={`/?filter=${filter}`}
-      className={`stat-card tone-${tone} ${active ? 'is-active' : ''}`}
+      href={href}
+      className={`stat-card tone-${quiet ? 'neutral' : tone} ${quiet ? 'is-quiet' : ''} ${active ? 'is-active' : ''}`}
     >
       <div className="stat-label">{label}</div>
-      <div className={`stat-value tone-${tone}`}>{value}</div>
+      <div className={`stat-value tone-${quiet ? 'neutral' : tone}`}>{value}</div>
       {sub && <div className="stat-sub">{sub}</div>}
     </Link>
   );
@@ -63,6 +75,9 @@ export default async function DashboardPage({
   const filter: ShipmentFilter =
     filterParam && isShipmentFilter(filterParam) ? filterParam : 'needs_attention';
 
+  const sourceParam = one('source');
+  const source: SourceFilter = sourceParam && isSourceFilter(sourceParam) ? sourceParam : 'all';
+
   const search = one('q');
   const fromRaw = one('from');
   const toRaw = one('to');
@@ -72,6 +87,7 @@ export default async function DashboardPage({
     getDashboardStats(),
     listShipments({
       filter,
+      source,
       search,
       from: parseDate(fromRaw),
       to: parseDate(toRaw, true),
@@ -84,13 +100,20 @@ export default async function DashboardPage({
     getLastSuccessfulSyncAt(),
   ]);
 
+  const view: ViewState = { filter, source, search, from: fromRaw, to: toRaw };
+  const canRefresh = can(user.role, 'sync:trigger');
+  const attentionSort =
+    filter === 'needs_attention' || filter === 'aging_24h' || filter === 'label_created';
+
   const now = new Date();
   const staleSources = syncHealth.filter((h) => h.stale);
   const failedSources = syncHealth.filter((h) => h.lastStatus === 'failed');
   const totalPages = Math.max(1, Math.ceil(listing.total / PAGE_SIZE));
 
   const pageHref = (targetPage: number) => {
-    const query = new URLSearchParams({ filter });
+    const query = new URLSearchParams();
+    if (filter !== 'needs_attention') query.set('filter', filter);
+    if (source !== 'all') query.set('source', source);
     if (search) query.set('q', search);
     if (fromRaw) query.set('from', fromRaw);
     if (toRaw) query.set('to', toRaw);
@@ -98,9 +121,15 @@ export default async function DashboardPage({
     return `/?${query.toString()}`;
   };
 
+  const cardHref = (target: ShipmentFilter) =>
+    `/?${new URLSearchParams({
+      ...(target !== 'needs_attention' ? { filter: target } : {}),
+      ...(source !== 'all' ? { source } : {}),
+    }).toString()}`;
+
   return (
     <>
-      <AppHeader user={user} lastSyncAt={lastSyncAt} showRefresh />
+      <AppHeader user={user} lastSyncAt={lastSyncAt} />
       <main className="container">
         {/* Synchronisation warnings: a stale sync means the numbers below
             cannot be trusted, so it is stated loudly rather than hidden. */}
@@ -131,55 +160,111 @@ export default async function DashboardPage({
           </div>
         )}
 
+        {/* Context bar: what the data is, and how to make it fresher. Kept out
+            of the header so it survives narrow screens, where .header-meta is
+            hidden. */}
+        <div className="context-bar">
+          <div>
+            <span className="muted">Last sync: </span>
+            {lastSyncAt ? formatDateTime(lastSyncAt) : <span className="muted">never</span>}
+          </div>
+          <div className="header-spacer" />
+          {canRefresh && <RefreshDataButton />}
+        </div>
+
+        {/* Triage line: the one number that decides whether anyone acts today. */}
+        <div className={`triage ${stats.needsAttention > 0 ? 'is-critical' : 'is-clear'}`}>
+          <div className="triage-value">{stats.needsAttention}</div>
+          <div>
+            <div className="triage-title">
+              {stats.needsAttention > 0
+                ? `shipment${stats.needsAttention === 1 ? '' : 's'} need attention`
+                : 'Nothing needs attention'}
+            </div>
+            <div className="triage-sub">
+              {stats.needsAttention > 0 ? (
+                <>
+                  {stats.agingLabels} overdue · {stats.exceptions} delivery problem
+                  {stats.exceptions === 1 ? '' : 's'} · {stats.labelCreated} awaiting UPS
+                </>
+              ) : (
+                'Every label has a confirmed UPS possession scan.'
+              )}
+            </div>
+          </div>
+          <div className="header-spacer" />
+          {stats.needsAttention > 0 && filter !== 'needs_attention' && (
+            <Link href={cardHref('needs_attention')} className="btn btn-sm">
+              Review them
+            </Link>
+          )}
+        </div>
+
         <div className="card-grid">
           <StatCard
-            label="Needs Attention"
-            value={stats.needsAttention}
-            tone={stats.needsAttention > 0 ? 'critical' : 'success'}
-            filter="needs_attention"
-            active={filter === 'needs_attention'}
-            sub={stats.agingLabels > 0 ? `${stats.agingLabels} over 24 hours` : 'All labels scanned'}
+            label="Overdue — No UPS Scan"
+            value={stats.agingLabels}
+            tone={stats.agingLabels > 0 ? 'critical' : 'success'}
+            href={cardHref('aging_24h')}
+            active={filter === 'aging_24h'}
+            sub="Past its expected hand-over day"
           />
           <StatCard
-            label="Label Created"
-            value={stats.labelCreatedTotal}
-            tone={stats.labelCreatedTotal > 0 ? 'warning' : 'success'}
-            filter="label_created"
+            label="Delivery Problems"
+            value={stats.exceptions}
+            tone={stats.exceptions > 0 ? 'critical' : 'success'}
+            href={cardHref('exception')}
+            active={filter === 'exception'}
+            sub="UPS reported an issue"
+          />
+          <StatCard
+            label="Awaiting UPS"
+            value={stats.labelCreated}
+            tone={stats.labelCreated > 0 ? 'warning' : 'success'}
+            href={cardHref('label_created')}
             active={filter === 'label_created'}
-            sub="No UPS possession scan"
+            sub="Printed, still within its window"
           />
           <StatCard
             label="In Transit"
             value={stats.inTransitTotal}
-            tone="success"
-            filter="in_transit"
-            active={filter === 'in_transit'}
-            sub={`${stats.confirmedShipped} newly confirmed`}
-          />
-          <StatCard
-            label="Delivered"
-            value={stats.delivered}
-            tone="success"
-            filter="delivered"
-            active={filter === 'delivered'}
-          />
-          <StatCard
-            label="Total Shipments"
-            value={stats.total}
             tone="neutral"
-            filter="all"
-            active={filter === 'all'}
-            sub={`${stats.wholesale} wholesale`}
+            href={cardHref('in_transit')}
+            active={filter === 'in_transit'}
+            quiet
           />
+        </div>
+
+        {/* Outcomes, not actions: deliberately quiet. */}
+        <div className="context-cards">
+          <Link href={cardHref('delivered')} className="context-card">
+            <span className="muted">Delivered</span> <strong>{stats.delivered}</strong>
+          </Link>
+          <Link href={cardHref('all')} className="context-card">
+            <span className="muted">Total shipments</span> <strong>{stats.total}</strong>
+          </Link>
+          <span className="context-card is-note">
+            Cards overlap and Total includes resolved shipments — they are not meant to sum.
+          </span>
         </div>
 
         <div className="panel">
           <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12 }}>
-            <DashboardFilters active={filter} search={search} from={fromRaw} to={toRaw} />
-            <SearchAndDateForm filter={filter} search={search} from={fromRaw} to={toRaw} />
+            <DashboardFilters state={view} />
+            <SearchAndDateForm state={view} />
           </div>
 
-          <ShipmentTable shipments={listing.shipments} now={now} />
+          <ActiveView
+            state={view}
+            total={listing.total}
+            sortNote={attentionSort ? 'oldest label first' : 'newest label first'}
+          />
+
+          <ShipmentTable
+            shipments={listing.shipments}
+            now={now}
+            allClear={filter === 'needs_attention' && listing.total === 0}
+          />
 
           {listing.total > PAGE_SIZE && (
             <div className="pagination">

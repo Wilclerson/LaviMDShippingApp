@@ -17,6 +17,7 @@ import {
 } from '../src/lib/ups/codes';
 
 const NOW = new Date('2026-08-26T13:00:00Z');
+// NOW is Wed 2026-08-26 09:00 Eastern.
 const base = {
   labelCreatedAt: null as Date | null,
   firstCarrierScanAt: null as Date | null,
@@ -25,6 +26,9 @@ const base = {
   voided: false,
   manuallyResolved: false,
   agingThresholdHours: 24,
+  // Overdue is now a calendar judgement, so the service matters: it decides
+  // whether a Thu/Fri label was printed for the same day or held for Monday.
+  service: 'UPS 2nd Day Air®',
 };
 
 describe('deriveStatus — the LABEL CREATED != SHIPPED rule', () => {
@@ -34,29 +38,25 @@ describe('deriveStatus — the LABEL CREATED != SHIPPED rule', () => {
       NOW,
     );
     assert.equal(status, 'LABEL_CREATED');
-    assert.equal(statusDisplay(status), '⚠️ Label Created — No Carrier Scan');
+    assert.equal(statusDisplay(status), 'Awaiting UPS');
   });
 
-  test('a label older than the threshold with no scan escalates to AGING_LABEL', () => {
+  test('a label past its expected hand-over day escalates to AGING_LABEL', () => {
+    // Printed Mon 24th → expected out Mon → overdue after end of Tue 25th.
+    const status = deriveStatus(
+      { ...base, labelCreatedAt: new Date('2026-08-24T13:00:00Z') },
+      NOW,
+    );
+    assert.equal(status, 'AGING_LABEL');
+    assert.equal(statusDisplay(status), 'Overdue — No UPS Scan');
+  });
+
+  test('inside its window it is still LABEL_CREATED, however many hours old', () => {
+    // Printed Tue 25th → expected out Tue → its grace day (Wed) has not closed,
+    // so at Wed 09:00 it is 28 hours old and still not overdue. The flat rule
+    // would have flagged this; the cadence rule does not.
     const status = deriveStatus(
       { ...base, labelCreatedAt: new Date('2026-08-25T09:00:00Z') },
-      NOW,
-    );
-    assert.equal(status, 'AGING_LABEL');
-    assert.equal(statusDisplay(status), '🚨 Label >24 Hours — No UPS Scan');
-  });
-
-  test('exactly at the 24 hour boundary it is already aging', () => {
-    const status = deriveStatus(
-      { ...base, labelCreatedAt: new Date('2026-08-25T13:00:00Z') },
-      NOW,
-    );
-    assert.equal(status, 'AGING_LABEL');
-  });
-
-  test('one minute under the threshold it is still LABEL_CREATED', () => {
-    const status = deriveStatus(
-      { ...base, labelCreatedAt: new Date('2026-08-25T13:01:00Z') },
       NOW,
     );
     assert.equal(status, 'LABEL_CREATED');
@@ -73,7 +73,7 @@ describe('deriveStatus — the LABEL CREATED != SHIPPED rule', () => {
     );
     assert.equal(status, 'IN_TRANSIT');
     assert.equal(refineMovementStatus(status, 1), 'SHIPPED');
-    assert.equal(statusDisplay(refineMovementStatus(status, 1)), '✅ Confirmed Shipped');
+    assert.equal(statusDisplay(refineMovementStatus(status, 1)), 'Confirmed Shipped');
     assert.equal(refineMovementStatus(status, 4), 'IN_TRANSIT');
   });
 

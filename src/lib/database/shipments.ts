@@ -11,6 +11,7 @@
 
 import { query, queryOne, transaction } from './pool';
 import { logger } from '../logger';
+import { evaluateOverdue } from '../shipment-normalizer/overdue';
 import { env } from '../env';
 import type { MergedShipment } from '../shipment-normalizer/merge';
 import type { CarrierEvent, NormalizedStatus, ShipmentRow, ShipmentSource } from '../types';
@@ -327,20 +328,53 @@ export async function markTrackingChecked(trackingNumbers: string[]): Promise<vo
  * Re-evaluate statuses for shipments whose age has crossed the aging threshold
  * since the last sync. Nothing about the shipment changed; time passed.
  */
+/**
+ * Escalate unscanned labels that are now past their expected hand-over.
+ *
+ * This used to be a single set-based UPDATE with a flat hours interval. It
+ * cannot be any more: the deadline depends on the label's weekday, its service
+ * class and the holiday calendar, and encoding that in SQL would duplicate the
+ * rule in a second language where it could drift from the one the dashboard and
+ * the email read. So the candidates are fetched, judged by the same
+ * `evaluateOverdue` everything else uses, and only the ones that changed are
+ * written back.
+ *
+ * The candidate set is tiny by construction — unscanned, unresolved labels
+ * only, a dozen or so in practice — so the round trip costs nothing.
+ *
+ * Note this only ever promotes LABEL_CREATED to AGING_LABEL. Possession is
+ * untouched: a label with a physical scan is excluded before we start.
+ */
 export async function refreshAgingLabels(thresholdHours: number): Promise<number> {
-  const rows = await query<{ id: string }>(
-    `UPDATE shipments
-        SET normalized_status = 'AGING_LABEL'
+  const candidates = await query<{ id: string; label_created_at: Date; service: string | null }>(
+    `SELECT id, label_created_at, service
+       FROM shipments
       WHERE normalized_status = 'LABEL_CREATED'
         AND has_physical_scan = FALSE
         AND manually_resolved = FALSE
-        AND label_created_at IS NOT NULL
-        AND label_created_at <= NOW() - ($1 || ' hours')::interval
-      RETURNING id`,
-    [String(thresholdHours)],
+        AND label_created_at IS NOT NULL`,
   );
-  if (rows.length > 0) logger.info('labels escalated to aging', { count: rows.length });
-  return rows.length;
+
+  const now = new Date();
+  const overdueIds = candidates
+    .filter(
+      (row) =>
+        evaluateOverdue({
+          labelCreatedAt: row.label_created_at,
+          service: row.service,
+          minimumHours: thresholdHours,
+          now,
+        }).overdue,
+    )
+    .map((row) => row.id);
+
+  if (overdueIds.length === 0) return 0;
+
+  await query(`UPDATE shipments SET normalized_status = 'AGING_LABEL' WHERE id = ANY($1::uuid[])`, [
+    overdueIds,
+  ]);
+  logger.info('labels escalated to overdue', { count: overdueIds.length });
+  return overdueIds.length;
 }
 
 export async function getShipmentById(id: string): Promise<ShipmentRow | null> {

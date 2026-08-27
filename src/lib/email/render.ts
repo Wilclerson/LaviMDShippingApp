@@ -31,6 +31,7 @@
 import { env } from '../env';
 import { formatAge, formatDateTimeShort, formatLongDate, DISPLAY_TZ } from '../time';
 import { WHOLESALE_SOURCE_LABEL, type ShipmentRow } from '../types';
+import { STATUS_PRESENTATION } from '../shipment-normalizer/status';
 import type { DailyReportData } from '../database/queries';
 
 /**
@@ -318,8 +319,8 @@ export function renderDailyReport(data: DailyReportData, now: Date = new Date())
       </tr>
       <tr>
         ${metricCard('Delivered', data.deliveredCount, 'success')}
-        ${metricCard('Labels >24 Hours', data.agingLabels.length, data.agingLabels.length > 0 ? 'critical' : 'success')}
-        ${metricCard('Carrier Exceptions', data.exceptions.length, data.exceptions.length > 0 ? 'critical' : 'success')}
+        ${metricCard('Overdue — No UPS Scan', data.agingLabels.length, data.agingLabels.length > 0 ? 'critical' : 'success')}
+        ${metricCard('Delivery Problems', data.exceptions.length, data.exceptions.length > 0 ? 'critical' : 'success')}
       </tr>
     </table>
 
@@ -337,9 +338,9 @@ export function renderDailyReport(data: DailyReportData, now: Date = new Date())
         : ''
     }
 
-    ${renderSection({ heading: '🚨 Labels >24 Hours — No UPS Scan', emphasis: 'critical', shipments: data.agingLabels, now })}
-    ${renderSection({ heading: '⚠️ Label Created — Waiting for UPS', emphasis: 'warning', shipments: data.labelCreatedRecent, now })}
-    ${renderSection({ heading: '🚨 Carrier Exceptions', emphasis: 'critical', shipments: data.exceptions, now })}
+    ${renderSection({ heading: `🚨 ${STATUS_PRESENTATION.AGING_LABEL.display}`, emphasis: 'critical', shipments: data.agingLabels, now })}
+    ${renderSection({ heading: `⚠️ ${STATUS_PRESENTATION.LABEL_CREATED.display}`, emphasis: 'warning', shipments: data.labelCreatedRecent, now })}
+    ${renderSection({ heading: `🚨 ${STATUS_PRESENTATION.EXCEPTION.display}s`, emphasis: 'critical', shipments: data.exceptions, now })}
 
     <!-- ============ success summary — count only, never a list ============ -->
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 26px;">
@@ -418,8 +419,8 @@ function renderPlainText(data: DailyReportData, now: Date, subject: string): str
     `Confirmed Shipped:  ${data.confirmedCount}`,
     `In Transit:         ${data.inTransitCount}`,
     `Delivered:          ${data.deliveredCount}`,
-    `Labels >24 Hours:   ${data.agingLabels.length}`,
-    `Carrier Exceptions: ${data.exceptions.length}`,
+    `Overdue (no scan):  ${data.agingLabels.length}`,
+    `Delivery Problems:  ${data.exceptions.length}`,
     '',
   ];
 
@@ -430,17 +431,17 @@ function renderPlainText(data: DailyReportData, now: Date, subject: string): str
   }
 
   if (data.agingLabels.length > 0) {
-    lines.push(`LABELS >24 HOURS — NO UPS SCAN (${data.agingLabels.length})`, '');
+    lines.push(`${STATUS_PRESENTATION.AGING_LABEL.display.toUpperCase()} (${data.agingLabels.length})`, '');
     lines.push(...data.agingLabels.map((s) => textRow(s, now)), '');
   }
 
   if (data.labelCreatedRecent.length > 0) {
-    lines.push(`LABEL CREATED — WAITING FOR UPS (${data.labelCreatedRecent.length})`, '');
+    lines.push(`${STATUS_PRESENTATION.LABEL_CREATED.display.toUpperCase()} (${data.labelCreatedRecent.length})`, '');
     lines.push(...data.labelCreatedRecent.map((s) => textRow(s, now)), '');
   }
 
   if (data.exceptions.length > 0) {
-    lines.push(`CARRIER EXCEPTIONS (${data.exceptions.length})`, '');
+    lines.push(`${STATUS_PRESENTATION.EXCEPTION.display.toUpperCase()}S (${data.exceptions.length})`, '');
     lines.push(...data.exceptions.map((s) => textRow(s, now)), '');
   }
 

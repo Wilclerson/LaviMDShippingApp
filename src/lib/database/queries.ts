@@ -32,17 +32,47 @@ export function isShipmentFilter(value: string): value is ShipmentFilter {
 
 export const FILTER_LABELS: Record<ShipmentFilter, string> = {
   needs_attention: 'Needs Attention',
-  label_created: 'Label Created',
-  aging_24h: '24 Hours No Scan',
+  label_created: 'Awaiting UPS',
+  aging_24h: 'Overdue — No UPS Scan',
   confirmed_shipped: 'Confirmed Shipped',
   in_transit: 'In Transit',
   delivered: 'Delivered',
-  exception: 'Carrier Exception',
+  exception: 'Delivery Problem',
   wholesale: 'Wholesale / Danielle',
   store_retail: 'Lavi MD Retail Website',
   store_manual: 'Lavi MD Manual Orders',
   store_shopify: 'Lavi MD Shopify Store',
   all: 'All Shipments',
+};
+
+/**
+ * Source is a SEPARATE dimension from status, combined with AND.
+ *
+ * The two used to share one `filter` parameter, so choosing a store silently
+ * discarded the status — the screen offered two filter rows that looked
+ * independent and were not. "What needs attention in Retail?" is the question
+ * the warehouse actually asks, and it was unaskable.
+ */
+export const SOURCE_FILTERS = ['all', 'wholesale', 'retail', 'manual', 'shopify'] as const;
+export type SourceFilter = (typeof SOURCE_FILTERS)[number];
+
+export function isSourceFilter(value: string): value is SourceFilter {
+  return (SOURCE_FILTERS as readonly string[]).includes(value);
+}
+
+export const SOURCE_LABELS: Record<SourceFilter, string> = {
+  all: 'All sources',
+  wholesale: 'Wholesale / Danielle',
+  retail: 'Lavi MD Retail Website',
+  manual: 'Lavi MD Manual Orders',
+  shopify: 'Lavi MD Shopify Store',
+};
+
+/** Store filters resolve to the source_store name recorded on the shipment. */
+const SOURCE_STORE_NAMES: Partial<Record<SourceFilter, string>> = {
+  retail: 'Lavi MD Retail Website',
+  manual: 'Lavi MD Manual Orders',
+  shopify: 'Lavi MD Shopify Store',
 };
 
 /** Store filters match on the ShipStation store name we recorded. */
@@ -54,6 +84,8 @@ const STORE_FILTER_NAMES: Partial<Record<ShipmentFilter, string>> = {
 
 export interface ShipmentQueryOptions {
   filter?: ShipmentFilter;
+  /** Combined with `filter` using AND. */
+  source?: SourceFilter;
   search?: string;
   from?: Date;
   to?: Date;
@@ -105,7 +137,10 @@ function buildWhere(options: ShipmentQueryOptions): WhereClause {
       conditions.push(`normalized_status = 'EXCEPTION'`);
       break;
     case 'wholesale':
-      conditions.push(`source = 'wholesale_danielle'`);
+      // Danielle's labels are purchased THROUGH ShipStation, so their `source`
+      // is 'shipstation' and only `source_store` identifies them. Keying on the
+      // enum returned nothing at all in production.
+      conditions.push(`(source_store = 'Wholesale / Danielle' OR source = 'wholesale_danielle')`);
       break;
     case 'store_retail':
     case 'store_manual':
@@ -116,6 +151,15 @@ function buildWhere(options: ShipmentQueryOptions): WhereClause {
     }
     case 'all':
       break;
+  }
+
+  // Source is independent of status and ANDs with it.
+  const source = options.source ?? 'all';
+  if (source === 'wholesale') {
+    conditions.push(`source_store = 'Wholesale / Danielle'`);
+  } else if (SOURCE_STORE_NAMES[source]) {
+    params.push(SOURCE_STORE_NAMES[source]);
+    conditions.push(`source_store = $${params.length}`);
   }
 
   // "Needs attention" already excludes resolved rows; elsewhere it is opt-in.
@@ -255,7 +299,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
                           AND manually_resolved = FALSE)::text  AS label_created_total,
        COUNT(*) FILTER (WHERE normalized_status IN ('SHIPPED','IN_TRANSIT')
                           AND manually_resolved = FALSE)::text  AS in_transit_total,
-       COUNT(*) FILTER (WHERE source = 'wholesale_danielle'
+       COUNT(*) FILTER (WHERE (source_store = 'Wholesale / Danielle' OR source = 'wholesale_danielle')
                           AND manually_resolved = FALSE)::text  AS wholesale,
        COUNT(*)::text                                           AS total
      FROM shipments`,

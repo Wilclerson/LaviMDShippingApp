@@ -38,13 +38,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
    * edit a shipment or change a user — those stay admin-only, and the write-once
    * database triggers bound what any sync can do regardless of who starts it.
    */
-  fulfillment: [
-    'shipments:view',
-    'shipments:search',
-    'shipments:note',
-    'sync:trigger',
-    'system:view',
-  ],
+  fulfillment: ['shipments:view', 'shipments:search', 'shipments:note', 'sync:trigger'],
 };
 
 export function can(role: UserRole, permission: Permission): boolean {

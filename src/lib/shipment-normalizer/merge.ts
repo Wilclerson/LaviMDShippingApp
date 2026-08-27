@@ -200,6 +200,10 @@ export function mergeShipment(
   const exceptionType = coalesce(ups?.exceptionType, options.knownExceptionType);
   const hasException = Boolean(exceptionType) && !voided;
 
+  // Hoisted above deriveStatus: the overdue rule needs it to tell a
+  // Ground-safe Thursday label from a cold one held for Monday.
+  const service = coalesce(shipstation?.service, ups?.service);
+
   const baseStatus = deriveStatus(
     {
       labelCreatedAt,
@@ -209,6 +213,9 @@ export function mergeShipment(
       voided,
       manuallyResolved: options.manuallyResolved ?? false,
       agingThresholdHours: options.agingThresholdHours,
+      // The service decides whether a Thursday/Friday label was printed for
+      // same-day dispatch or held for Monday.
+      service,
     },
     now,
   );
@@ -232,7 +239,7 @@ export function mergeShipment(
     shipstationStatus: shipstation?.shipstationStatus ?? null,
 
     carrier: coalesce(shipstation?.carrier, ups ? 'UPS' : null),
-    service: coalesce(shipstation?.service, ups?.service),
+    service,
 
     labelCreatedAt,
     shipDate: coalesce(shipstation?.shipDate, ups?.shipDate),
